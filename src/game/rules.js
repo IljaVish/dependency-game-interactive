@@ -20,8 +20,19 @@ export function canOwnProject(playerColour, card) {
 // ─── Training completion ──────────────────────────────────────────────────────
 
 // Training cards are completed with own-colour dice only.
-// requiredCount dice must show a value >= requiredMin.
+// If trainingDef.slots is defined, each slot specifies a minimum value and dice
+// are matched greedily (hardest slot first). Otherwise falls back to the simple
+// requiredCount / requiredMin check.
 export function isTrainingComplete(trainingDef, diceValues) {
+  if (trainingDef.slots) {
+    const available = [...diceValues]
+    for (const minVal of [...trainingDef.slots].sort((a, b) => b - a)) {
+      const idx = available.findIndex(v => v >= minVal)
+      if (idx === -1) return false
+      available.splice(idx, 1)
+    }
+    return true
+  }
   const qualifying = diceValues.filter(v => v >= trainingDef.requiredMin)
   return qualifying.length >= trainingDef.requiredCount
 }

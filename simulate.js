@@ -10,6 +10,11 @@ import { TRAINING_CARDS, TRAINING_DEFINITIONS, SIDE_PROJECT_CARDS } from './src/
 function getPlayer(state, id) { return state.players.find(p => p.id === id) }
 function freeDice(player) { return player.dice.filter(d => !d.locked && d.allocatedTo === null) }
 function cardPriority(card) { return card.urgentPenalty * 100 + card.points }
+function percentile(sortedArr, p) {
+  const idx = (p / 100) * (sortedArr.length - 1)
+  const lo = Math.floor(idx), hi = Math.ceil(idx)
+  return lo === hi ? sortedArr[lo] : Math.round(sortedArr[lo] + (idx - lo) * (sortedArr[hi] - sortedArr[lo]))
+}
 
 // How many more owner dice slots need to be allocated to this card
 function ownerSlotsNeeded(state, card) {
@@ -454,6 +459,38 @@ function planUseSetTraining(state) {
   return state
 }
 
+// After rolling, rework-trained players reroll their 2 worst (unmatched) dice.
+// Only fires if the player has an owned card and ≥2 dice that don't satisfy any
+// remaining owner slot — avoids rerolling dice that are already doing useful work.
+function applyReworkAbility(state) {
+  for (const { id } of state.players) {
+    const p = state.players.find(pl => pl.id === id)
+    if (!p.completedTrainings.includes('rework') || p.reworkUsed) continue
+    if (!p.ownedCard) continue
+
+    const card = findCard(p.ownedCard.cardId)
+    const lockedOwner = p.dice.filter(d => d.locked && d.allocatedTo === card.id)
+    const remaining = [...card.ownerDice]
+    for (const d of lockedOwner) {
+      const i = remaining.indexOf(d.value)
+      if (i !== -1) remaining.splice(i, 1)
+    }
+
+    const rolled = p.dice.filter(d => !d.locked && d.value !== null && d.allocatedTo === card.id)
+    const pool = [...rolled]
+    const matched = new Set()
+    for (const slot of remaining) {
+      const i = pool.findIndex(d => d.value === slot)
+      if (i !== -1) { matched.add(pool[i].id); pool.splice(i, 1) }
+    }
+    const wasted = rolled.filter(d => !matched.has(d.id)).sort((a, b) => a.value - b.value)
+    if (wasted.length < 2) continue
+
+    state = gameReducer(state, { type: 'USE_REWORK', playerId: id, dieIds: [wasted[0].id, wasted[1].id] })
+  }
+  return state
+}
+
 // Invest spare dice in Support or Set training (in that priority order).
 // Only fires if player has ≥3 truly spare dice after ALL project obligations.
 function planTrainingOpportunistic(state) {
@@ -545,14 +582,26 @@ function strategy3(state, trainingPlayerIds) {
   return state
 }
 
-// 4. Smart Marketplace: all to marketplace, WIP ≤ 3, urgent projects jump the queue,
-//    dep player commits ALL dice to one project (focused), owners commit ALL remaining dice.
-//    Idle dice (no dep obligation, no owned card) go to side projects.
-function strategy4(state) {
+// Keep Own Card: players keep their drawn card (or put it to marketplace if dep colour
+// matches own colour). Players without a card after Set take one from the marketplace.
+// Full dep collaboration — isolates the cost of reduced visibility vs marketplace-first.
+function strategyKeepOwn(state) {
+  state = setPhase_keepOwn(state)
+  state = gameReducer(state, { type: 'ADVANCE_TO_PLAN' })
+  state = planTakeFromMarketplace(state)          // players who drew an illegal card grab one
+  state = planDepDiceFocused(state)              // completion-first dep focus
+  state = planOwnerDiceFull(state)
+  state = planSideProjectsIfNoDepNeeds(state)
+  return state
+}
+
+// Urgent First: all to marketplace, dep player commits ALL dice to one project,
+// prioritising urgent cards first (penalty avoidance). WIP capped at `wip`.
+function strategy4(state, wip = 3) {
   state = setPhase_allMarketplace(state)
   state = gameReducer(state, { type: 'ADVANCE_TO_PLAN' })
-  state = planTakeFromMarketplaceWIPLimited(state, 3)
-  state = planDepDiceFocused(state, true)   // urgent-first, all dep dice to one card
+  state = planTakeFromMarketplaceWIPLimited(state, wip)
+  state = planDepDiceFocused(state, true)
   state = planOwnerDiceFull(state)
   state = planSideProjectsIfNoDepNeeds(state)
   return state
@@ -895,27 +944,19 @@ function makeTrainingStrategy(trainingTypes) {
         trainerTargets = Object.fromEntries(bestPlan.trainerCandidates.map((t, i) => [t.id, trainingTypes[i]]))
       } else {
         // Fallback: any marketplace taking, first N players train
-        state = planTakeFromMarketplaceWIPSmart(state, 3, new Set())
+        state = planTakeFromMarketplaceWIPLimited(state, 3)
         trainerIds     = state.players.slice(0, numTrainers).map(p => p.id)
         trainerTargets = Object.fromEntries(trainerIds.map((id, i) => [id, trainingTypes[i]]))
       }
 
-      // 1P training: the 5th worker can still pick up a 3rd project (WIP≤3 smart)
+      // 1P training: the 5th worker can still pick up a 3rd project
       if (numTrainers === 1) {
-        const trainerColour = state.players.find(p => p.id === trainerIds[0])?.colour
-        state = planTakeFromMarketplaceWIPSmart(state, 3, new Set([trainerColour].filter(Boolean)))
+        state = planTakeFromMarketplaceWIPLimited(state, 3)
       }
 
-    // ── Rounds 2+: active trainers' colours blocked from new dep obligations ──
+    // ── Rounds 2+ ─────────────────────────────────────────────────────────────
     } else {
-      const activeTrainers = (trainerIds || []).filter(id => {
-        const t = trainerTargets?.[id]
-        return t && !getPlayer(state, id).completedTrainings.includes(t)
-      })
-      const activeTrainerColours = new Set(
-        activeTrainers.map(id => state.players.find(p => p.id === id)?.colour).filter(Boolean)
-      )
-      state = planTakeFromMarketplaceWIPSmart(state, 3, activeTrainerColours)
+      state = planTakeFromMarketplaceWIPLimited(state, 3)
     }
 
     // ── Commit active trainers' dice to their training card ───────────────────
@@ -950,9 +991,9 @@ function makeTrainingStrategy(trainingTypes) {
 
 const strategy10 = makeTrainingStrategy(['set', 'set'])
 const strategy11 = makeTrainingStrategy(['set'])
-const strategy12 = makeTrainingStrategy(['support', 'support'])
 const strategy13 = makeTrainingStrategy(['support'])
 const strategy14 = makeTrainingStrategy(['set', 'support'])
+const strategy15 = makeTrainingStrategy(['support', 'rework'])
 
 // ── Game runner ───────────────────────────────────────────────────────────────
 
@@ -981,15 +1022,17 @@ const ROUNDS = 12
 const TRAINING_PLAYERS = ['player-0', 'player-1']
 
 const strategies = [
-  { name: 'Competitive / Selfish',              fn: strategy1,  args: [] },
-  { name: 'Smart Marketplace (WIP ≤ 3)',        fn: strategy4,  args: [] },
-  { name: 'Max Project Focus (WIP ≤ 3)',        fn: strategy9,  args: [3] },
-  { name: 'Max Project Focus (WIP ≤ 4)',        fn: strategy9,  args: [4] },
-  { name: 'Train 2P Set',                       fn: strategy10, args: [] },
-  { name: 'Train 1P Set',                       fn: strategy11, args: [] },
-  { name: 'Train 2P Support',                   fn: strategy12, args: [] },
-  { name: 'Train 1P Support',                   fn: strategy13, args: [] },
-  { name: 'Train 2P Set & Support',             fn: strategy14, args: [] },
+  { name: 'Competitive / Selfish',          fn: strategy1,       args: [] },
+  { name: 'Keep Own Card',                  fn: strategyKeepOwn, args: [] },
+  { name: 'Urgent First (WIP ≤ 3)',         fn: strategy4,       args: [3] },
+  { name: 'Urgent First (WIP ≤ 4)',         fn: strategy4,       args: [4] },
+  { name: 'Completion First (WIP ≤ 3)',     fn: strategy9,       args: [3] },
+  { name: 'Completion First (WIP ≤ 4)',     fn: strategy9,       args: [4] },
+  { name: 'Train 2P Set',                   fn: strategy10,      args: [] },
+  { name: 'Train 1P Set',                   fn: strategy11,      args: [] },
+  { name: 'Train 1P Support',               fn: strategy13,      args: [] },
+  { name: 'Train 1P Supp + 1P Rework',      fn: strategy15,      args: [] },
+  { name: 'Train 2P Set & Support',         fn: strategy14,      args: [] },
 ]
 
 // ── Diagnostic: analyse one game for training activity ────────────────────────
@@ -1024,6 +1067,7 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
   let peakDepConcentration = 0     // max projects sharing the same dep colour simultaneously
   let setAbilityUses = 0           // rounds a Set-trained player used the set-die ability
   let supportAbilityUses = 0       // rounds a Support-trained player contributed as dep wildcard
+  let reworkAbilityUses = 0        // rounds a Rework-trained player rerolled 2 dice
 
   let sideProjectSixes = 0
   const roundTeamScores = []   // team score at end of each round (for trajectory)
@@ -1088,6 +1132,8 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
 
     state = gameReducer(state, { type: 'ADVANCE_TO_WORK' })
     state = gameReducer(state, { type: 'ROLL_ALL_DICE' })
+    state = applyReworkAbility(state)
+    for (const p of state.players) { if (p.reworkUsed) reworkAbilityUses++ }
 
     for (const p of state.players) {
       for (const d of p.dice) {
@@ -1148,7 +1194,7 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
     sideProjectSixes,
     urgentOwned: urgentOwnedSet.size,
     peakLockedDice, roundsNoCompletion, peakDepConcentration,
-    setAbilityUses, supportAbilityUses,
+    setAbilityUses, supportAbilityUses, reworkAbilityUses,
   }
 }
 
@@ -1200,10 +1246,19 @@ const allData = strategies.map(s => {
     prjPenalty:    avgNum('projectPenaltyPoints'),
     totalTrnDice:  avgNum('trainingDice'),
     trnDone:       avgNum('trainingCompletions'),
-    ablUses:       avgNum('setAbilityUses') + avgNum('supportAbilityUses'),
+    ablUses:       avgNum('setAbilityUses') + avgNum('supportAbilityUses') + avgNum('reworkAbilityUses'),
     totalSideDice: avgNum('sideProjectDice'),
     sidePoints:    avgNum('sideProjectSixes'),
     totalLocked:   avgNum('lockedDice'),
+    avgByRound: Array.from({ length: ROUNDS }, (_, r) =>
+      runs.reduce((sum, run) => sum + (run.roundTeamScores[r] ?? 0), 0) / runs.length
+    ),
+    p10:  percentile(scores.sort((a, b) => a - b), 10),
+    p25:  percentile(scores, 25),
+    p50:  percentile(scores, 50),
+    p75:  percentile(scores, 75),
+    p90:  percentile(scores, 90),
+    std:  Math.sqrt(scores.reduce((s, v) => s + (v - avg) ** 2, 0) / scores.length),
   }
 })
 
@@ -1297,3 +1352,41 @@ for (const d of allData) {
     String(d.max).padStart(6)
   )
 }
+
+// ── 4. Score distribution (50 games) ─────────────────────────────────────────
+
+console.log('\n── 4. Score distribution (50 games) ────────────────────────────────────\n')
+console.log(
+  'Strategy'.padEnd(W) +
+  '  p10'.padStart(6) + '  p25'.padStart(6) + '  p50'.padStart(6) +
+  '  p75'.padStart(6) + '  p90'.padStart(6) + '   std'.padStart(7)
+)
+console.log('─'.repeat(W + 37))
+for (const d of allData) {
+  console.log(
+    d.name.padEnd(W) +
+    String(d.p10).padStart(6) +
+    String(d.p25).padStart(6) +
+    String(d.p50).padStart(6) +
+    String(d.p75).padStart(6) +
+    String(d.p90).padStart(6) +
+    d.std.toFixed(1).padStart(7)
+  )
+}
+
+// ── 5. Score progression by round (avg cumulative team score) ─────────────────
+
+const SHORT = [
+  'Selfish', 'Keep Own', 'Urgent(3)', 'Urgent(4)',
+  'Compl(3)', 'Compl(4)',
+  '2P Set', '1P Set', '1P Supp', 'Supp+Rew', 'Set+Supp',
+]
+const NW = 10
+const roundHeaders = Array.from({ length: ROUNDS }, (_, i) => `R${i + 1}`.padStart(5)).join('')
+console.log('\n── 5. Score progression by round (avg cumulative team score) ────────────\n')
+console.log(' '.repeat(NW) + roundHeaders)
+console.log('─'.repeat(NW + ROUNDS * 5))
+allData.forEach((d, i) => {
+  const row = d.avgByRound.map(v => v.toFixed(1).padStart(5)).join('')
+  console.log(SHORT[i].padEnd(NW) + row)
+})

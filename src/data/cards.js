@@ -62,8 +62,7 @@ export const TRAINING_DEFINITIONS = {
     label: 'Set',
     flavour: "You've automated some repetitive tasks and got some serious edge!",
     ability: 'You may set one of your dice without rolling',
-    requiredCount: 3,
-    requiredMin: 5,
+    slots: [6, 5, 4],  // one die ≥6, one ≥5, one ≥4 — greedy match, E≈3 rounds
   },
 }
 
