@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "mcp:build": "tsc -p mcp/tsconfig.json",
-    "mcp:start": "node mcp-dist/server.js"
+    "mcp:start": "node mcp-dist/server.js",
+    "lint": "eslint '**/*.ts' '**/*.tsx'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -18,7 +19,10 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
     "@types/node": "^25.6.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.2",
+    "@typescript-eslint/parser": "^8.59.2",
     "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^10.3.0",
     "tailwindcss": "^4.2.4",
     "typescript": "^6.0.3",
     "vite": "^5.4.1"
