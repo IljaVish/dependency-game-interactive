@@ -9,7 +9,7 @@ The game helps teams experience the dynamics of cross-team dependencies,
 collaboration, and prioritisation in a safe, playful environment.
 
 ## Game mechanics (read carefully before building anything)
-- 2–6 players, each represented by a unique dice colour
+- 4–6 players, each represented by a unique dice colour (ideal for 6; playable with 4 or 5; not recommended below 4)
 - Each player has 5 dice of their colour
 - Game runs for 8–12 rounds ("months of work")
 - Each round has 4 phases: Set → Plan → Work → Score
