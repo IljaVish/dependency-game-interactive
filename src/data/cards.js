@@ -13,7 +13,7 @@ const PROJECT_TEMPLATE = [
   { ownerDice: [1],    depDice: [6, 6], points: 10, urgentPenalty: 0 },
 ]
 
-export const PROJECT_CARDS = COLOUR_ORDER.flatMap((colour, ci) =>
+export const PROJECT_CARDS = COLOUR_ORDER.flatMap((colour, _ci) =>
   PROJECT_TEMPLATE.map((template, ti) => ({
     id: `project-${colour}-${ti + 1}`,
     type: 'project',
@@ -66,7 +66,7 @@ export const TRAINING_DEFINITIONS = {
   },
 }
 
-export const TRAINING_CARDS = ['rework', 'support', 'set'].flatMap((key, ki) =>
+export const TRAINING_CARDS = ['rework', 'support', 'set'].flatMap((key, _ki) =>
   Array.from({ length: 3 }, (_, ci) => ({
     ...TRAINING_DEFINITIONS[key],
     id: `training-${key}-${ci + 1}`,

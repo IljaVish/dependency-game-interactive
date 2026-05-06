@@ -39,12 +39,16 @@ function Arrow() {
   )
 }
 
-export default function ProjectCard({ card }) {
+export default function ProjectCard({ card, onClick }) {
   const colour = COLOURS[card.depColour]
   const depPipFill = card.depColour === 'yellow' ? '#1f2937' : '#ffffff'
 
   return (
-    <div className="w-56 bg-white rounded-2xl shadow-lg border border-gray-200 select-none p-4 flex flex-col gap-2">
+    <div
+      className={`w-56 bg-white rounded-2xl shadow-lg border select-none p-4 flex flex-col gap-2
+        ${onClick ? 'border-blue-400 cursor-pointer hover:shadow-blue-200 hover:shadow-lg' : 'border-gray-200'}`}
+      onClick={onClick}
+    >
 
       {/* Dice row: owner left, arrow expands, dep right */}
       <div className="flex items-center">
