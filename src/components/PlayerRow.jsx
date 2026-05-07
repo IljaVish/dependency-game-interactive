@@ -40,7 +40,7 @@ function getLaneSideProject(player, playerClaimed) {
 
 export default function PlayerRow({
   player, phase, selectedDie, playerClaimed,
-  onDieClick, onCardClick, onDraw, onKeep, onPutToMarket,
+  onDieClick, onCardClick, onKeep, onPutToMarket,
 }) {
   const colour    = COLOURS[player.colour]
   const ownedCard = player.ownedCard ? findCard(player.ownedCard.cardId) : null
@@ -56,7 +56,9 @@ export default function PlayerRow({
   const laneTrainings  = getLaneTrainings(player, playerClaimed)
   const laneSideProject = getLaneSideProject(player, playerClaimed)
 
-  const hasSetAction = isSet && (player.needsDraw || player.pendingCard)
+  const pendingCardData = player.pendingCard ? findCard(player.pendingCard.cardId) : null
+  const canKeep = !(pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour)
+  const hasSetAction = isSet && player.pendingCard
   const hasCardArea  = ownedCard || laneTrainings.length > 0 || laneSideProject
 
   return (
@@ -101,17 +103,9 @@ export default function PlayerRow({
         )}
       </div>
 
-      {/* ── Set phase: draw / keep / put to market ── */}
+      {/* ── Set phase: keep / put to market ── */}
       {hasSetAction && (
         <div className="flex items-start gap-4 pt-1 border-t border-gray-600">
-          {player.needsDraw && !player.pendingCard && (
-            <button
-              onClick={onDraw}
-              className="bg-purple-700 hover:bg-purple-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium"
-            >
-              Draw card
-            </button>
-          )}
           {player.pendingCard && (
             <div className="flex items-start gap-4">
               <div className="flex flex-col gap-1.5">
@@ -119,10 +113,12 @@ export default function PlayerRow({
                 <ProjectCard card={findCard(player.pendingCard.cardId)} />
               </div>
               <div className="flex flex-col gap-2 pt-7">
-                <button onClick={onKeep}
-                  className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
-                  Keep it
-                </button>
+                {canKeep && (
+                  <button onClick={onKeep}
+                    className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
+                    Keep it
+                  </button>
+                )}
                 <button onClick={onPutToMarket}
                   className="bg-yellow-700 hover:bg-yellow-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
                   → Market

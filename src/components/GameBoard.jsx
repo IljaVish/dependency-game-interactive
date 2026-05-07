@@ -206,7 +206,7 @@ export default function GameBoard({ state, dispatch }) {
               <div key={entry.cardId} className="flex flex-col gap-2">
                 <ProjectCard
                   card={card}
-                  onClick={isSet ? () => setClaimingCardId(isClaiming ? null : entry.cardId) : undefined}
+                  onClick={isSet || isPlan ? () => setClaimingCardId(isClaiming ? null : entry.cardId) : undefined}
                 />
                 {isClaiming && playerPicker(
                   pid => handleMarketplaceClaim(pid, entry.cardId),
@@ -273,7 +273,6 @@ export default function GameBoard({ state, dispatch }) {
             playerClaimed={claimedByPlayer[player.id] ?? {}}
             onDieClick={(die) => handleDieClick(player.id, die)}
             onCardClick={handleCardClick}
-            onDraw={() => dispatch({ type: 'DRAW_CARD', playerId: player.id })}
             onKeep={() => dispatch({ type: 'KEEP_CARD', playerId: player.id })}
             onPutToMarket={() => dispatch({ type: 'PUT_TO_MARKETPLACE', playerId: player.id })}
           />

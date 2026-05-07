@@ -65,6 +65,28 @@ export function findCard(id) {
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
+// Automatically deals a pending card to every player whose needsDraw flag is set.
+// Called at the start of each round (including round 1) so the Set phase begins
+// with cards already in hand — no manual "Draw" action needed.
+function autoDraw(state) {
+  let s = state
+  for (const player of s.players) {
+    if (!player.needsDraw || player.pendingCard) continue
+    const [cardId, newDeck] = drawFromDeck(s.deck)
+    if (!cardId) continue
+    s = {
+      ...s,
+      deck: newDeck,
+      players: s.players.map(p =>
+        p.id === player.id
+          ? { ...p, pendingCard: { cardId, drawnRound: s.round } }
+          : p
+      ),
+    }
+  }
+  return s
+}
+
 export function createInitialState({ playerDefs, totalRounds = 12 }) {
   // playerDefs: [{ id, name, colour }]
   const activeColours = playerDefs.map(p => p.colour)
@@ -87,10 +109,10 @@ export function createInitialState({ playerDefs, totalRounds = 12 }) {
     completedTrainings: [],
     reworkUsed: false,
     setDieUsed: false,
-    needsDraw: true,   // all players draw in round 1
+    needsDraw: true,
   }))
 
-  return {
+  return autoDraw({
     phase: 'set',
     round: 1,
     totalRounds,
@@ -100,7 +122,7 @@ export function createInitialState({ playerDefs, totalRounds = 12 }) {
     deck,
     marketplace: [],
     roundScores: [],
-  }
+  })
 }
 
 // ─── Immutable helpers ────────────────────────────────────────────────────────
@@ -354,13 +376,13 @@ function setupNextRound(state) {
     // needsDraw stays set until player draws in Set phase
   }))
 
-  return {
+  return autoDraw({
     ...state,
     phase: 'set',
     round: nextRound,
     gameOver,
     players,
-  }
+  })
 }
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
@@ -390,6 +412,8 @@ export function gameReducer(state, action) {
       // Player keeps their pendingCard as ownedCard (replaces any current ownedCard back to deck).
       const player = state.players.find(p => p.id === action.playerId)
       if (!player?.pendingCard) return state
+      const pendingCardData = findCard(player.pendingCard.cardId)
+      if (pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour) return state
 
       let newDeck = state.deck
       let newMarketplace = state.marketplace
