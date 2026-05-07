@@ -152,11 +152,11 @@ export default function GameBoard({ state, dispatch }) {
     })
   )
 
-  function playerPicker(onSelect, onCancel) {
+  function playerPicker(onSelect, onCancel, excludeIds = []) {
     return (
       <div className="flex flex-col gap-1">
         <span className="text-xs text-gray-400 mb-0.5">Who works on this?</span>
-        {players.map(p => (
+        {players.filter(p => !excludeIds.includes(p.id)).map(p => (
           <button
             key={p.id}
             onClick={() => onSelect(p.id)}
@@ -206,11 +206,14 @@ export default function GameBoard({ state, dispatch }) {
               <div key={entry.cardId} className="flex flex-col gap-2">
                 <ProjectCard
                   card={card}
-                  onClick={isSet || isPlan ? () => setClaimingCardId(isClaiming ? null : entry.cardId) : undefined}
+                  onClick={isPlan ? () => setClaimingCardId(isClaiming ? null : entry.cardId) : undefined}
                 />
                 {isClaiming && playerPicker(
                   pid => handleMarketplaceClaim(pid, entry.cardId),
                   () => setClaimingCardId(null),
+                  card.type === 'project'
+                    ? players.filter(p => p.colour === card.depColour).map(p => p.id)
+                    : [],
                 )}
               </div>
             )

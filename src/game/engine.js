@@ -459,6 +459,8 @@ export function gameReducer(state, action) {
       const player = state.players.find(p => p.id === action.playerId)
       const entry = state.marketplace.find(e => e.cardId === action.cardId)
       if (!entry) return state
+      const marketCard = findCard(action.cardId)
+      if (marketCard?.type === 'project' && marketCard.depColour === player.colour) return state
 
       let newDeck = state.deck
       if (player.ownedCard) {
