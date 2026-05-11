@@ -104,8 +104,9 @@ export function createInitialState({ playerDefs, totalRounds = 12 }) {
       allocatedTo: null,
       locked: false,
     })),
-    ownedCard: null,
+    ownedCards: [],
     pendingCard: null,
+    activeTrainingCards: [],
     completedTrainings: [],
     reworkUsed: false,
     setDieUsed: false,
@@ -242,6 +243,7 @@ function scoreRound(state) {
         updatedPlayer = {
           ...updatedPlayer,
           completedTrainings: [...updatedPlayer.completedTrainings, trainingDef.id],
+          activeTrainingCards: updatedPlayer.activeTrainingCards.filter(tc => tc.cardId !== cardId),
         }
         entries.push({ playerId: player.id, description: `Training: ${trainingDef.label}`, points: 0 })
       }
@@ -258,20 +260,21 @@ function scoreRound(state) {
   // ── Owned card urgent penalties ───────────────────────────────────────────────
   // Applied regardless of whether any dice are currently allocated to the card.
   for (const player of players) {
-    if (!player.ownedCard) continue
-    const card = findCard(player.ownedCard.cardId)
-    if (card.urgentPenalty > 0 && round > player.ownedCard.drawnRound) {
-      entries.push({
-        playerId: player.id,
-        description: `Urgent penalty: ${card.id}`,
-        points: -card.urgentPenalty,
-      })
-      teamScore -= card.urgentPenalty
-      players = players.map(p =>
-        p.id === player.id
-          ? { ...p, totalScore: p.totalScore - card.urgentPenalty }
-          : p
-      )
+    for (const ownedEntry of player.ownedCards) {
+      const card = findCard(ownedEntry.cardId)
+      if (card.urgentPenalty > 0 && round > ownedEntry.drawnRound) {
+        entries.push({
+          playerId: player.id,
+          description: `Urgent penalty: ${card.id}`,
+          points: -card.urgentPenalty,
+        })
+        teamScore -= card.urgentPenalty
+        players = players.map(p =>
+          p.id === player.id
+            ? { ...p, totalScore: p.totalScore - card.urgentPenalty }
+            : p
+        )
+      }
     }
   }
 
@@ -291,7 +294,7 @@ function scoreRound(state) {
     const card = findCard(cardId)
 
     // Find the owner of this card.
-    const ownerPlayer = players.find(p => p.ownedCard?.cardId === cardId)
+    const ownerPlayer = players.find(p => p.ownedCards.some(oc => oc.cardId === cardId))
     if (!ownerPlayer) continue
 
     // Partition dice: owner's dice vs dependency dice.
@@ -314,7 +317,7 @@ function scoreRound(state) {
       players = players.map(p => {
         if (p.id !== ownerPlayer.id && !diceEntries.some(e => e.player.id === p.id)) return p
         let updated = p.id === ownerPlayer.id
-          ? { ...p, totalScore: p.totalScore + card.points, ownedCard: null, needsDraw: true }
+          ? { ...p, totalScore: p.totalScore + card.points, ownedCards: p.ownedCards.filter(oc => oc.cardId !== cardId), needsDraw: true }
           : { ...p }
         return updateDiceWhere(updated, d => d.allocatedTo === cardId,
           d => ({ ...d, allocatedTo: null, locked: false }))
@@ -415,20 +418,12 @@ export function gameReducer(state, action) {
       const pendingCardData = findCard(player.pendingCard.cardId)
       if (pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour) return state
 
-      let newDeck = state.deck
-      let newMarketplace = state.marketplace
-
-      if (player.ownedCard) {
-        // Return current owned card to bottom of deck
-        newDeck = [...state.deck, player.ownedCard.cardId]
-      }
-
       return updatePlayer(
-        { ...state, deck: newDeck, marketplace: newMarketplace },
+        state,
         action.playerId,
         p => ({
           ...p,
-          ownedCard: p.pendingCard,
+          ownedCards: [...p.ownedCards, p.pendingCard],
           pendingCard: null,
           needsDraw: false,
         })
@@ -462,23 +457,39 @@ export function gameReducer(state, action) {
       const marketCard = findCard(action.cardId)
       if (marketCard?.type === 'project' && marketCard.depColour === player.colour) return state
 
-      let newDeck = state.deck
-      if (player.ownedCard) {
-        newDeck = [...state.deck, player.ownedCard.cardId]
-      }
-
       return updatePlayer(
         {
           ...state,
-          deck: newDeck,
           marketplace: state.marketplace.filter(e => e.cardId !== action.cardId),
         },
         action.playerId,
-        p => ({ ...p, ownedCard: entry, pendingCard: null, needsDraw: false })
+        p => ({ ...p, ownedCards: [...p.ownedCards, entry] })
       )
     }
 
     // ── Plan phase ─────────────────────────────────────────────────────────────
+
+    case 'CLAIM_TRAINING_CARD': {
+      // action: { playerId, cardId }
+      // Adds a training card copy to the player's active lane. Rejected if the player
+      // already has a copy of the same type active or completed, or if another player
+      // has already claimed this exact copy.
+      const player = state.players.find(p => p.id === action.playerId)
+      if (!player) return state
+      const card = findCard(action.cardId)
+      if (!card || card.type !== 'training') return state
+      const trainingKey = action.cardId.split('-')[1]
+      if (player.completedTrainings.includes(trainingKey)) return state
+      if (player.activeTrainingCards.some(tc => tc.cardId.split('-')[1] === trainingKey)) return state
+      const takenByOther = state.players.some(
+        p => p.id !== action.playerId && p.activeTrainingCards.some(tc => tc.cardId === action.cardId)
+      )
+      if (takenByOther) return state
+      return updatePlayer(state, action.playerId, p => ({
+        ...p,
+        activeTrainingCards: [...p.activeTrainingCards, { cardId: action.cardId }],
+      }))
+    }
 
     case 'ALLOCATE_DIE': {
       // action: { playerId, dieId, cardId }
@@ -489,9 +500,12 @@ export function gameReducer(state, action) {
         const card = findCard(action.cardId)
         if (!card) return p
 
-        if (card.type === 'training' || card.type === 'sideProject') {
-          // Each training/side-project card copy belongs to one player.
-          // Reject if any other player already has dice on this card copy.
+        if (card.type === 'training') {
+          // Only allow allocation to a training copy the player has claimed.
+          if (!p.activeTrainingCards.some(tc => tc.cardId === action.cardId)) return p
+        }
+        if (card.type === 'sideProject') {
+          // Each side-project copy belongs to one player per round.
           const claimed = state.players.some(
             op => op.id !== action.playerId && op.dice.some(d => d.allocatedTo === action.cardId)
           )
@@ -499,7 +513,7 @@ export function gameReducer(state, action) {
         }
 
         if (card.type === 'project') {
-          const ownerPlayer = state.players.find(op => op.ownedCard?.cardId === action.cardId)
+          const ownerPlayer = state.players.find(op => op.ownedCards.some(oc => oc.cardId === action.cardId))
           if (ownerPlayer && ownerPlayer.id !== action.playerId) {
             // Non-owner contributing dep dice: must be the dep colour or have Support training.
             if (p.colour !== card.depColour && !p.completedTrainings.includes('support')) return p
@@ -517,6 +531,14 @@ export function gameReducer(state, action) {
         if (!die || die.locked) return p
         return updateDie(p, action.dieId, d => ({ ...d, allocatedTo: null }))
       })
+    }
+
+    case 'DEALLOCATE_ALL_NON_LOCKED': {
+      // action: { playerId }
+      return updatePlayer(state, action.playerId, p => ({
+        ...p,
+        dice: p.dice.map(d => d.locked ? d : { ...d, allocatedTo: null }),
+      }))
     }
 
     case 'SET_DIE_VALUE': {

@@ -31,11 +31,10 @@ const MARKETPLACE_SLOTS = 3
 
 function pickTrainingCardId(key, playerId, players) {
   const copies = [1, 2, 3].map(n => `training-${key}-${n}`)
-  return (
-    copies.find(id => players.find(p => p.id === playerId)?.dice.some(d => d.allocatedTo === id)) ??
-    copies.find(id => !players.some(p => p.id !== playerId && p.dice.some(d => d.allocatedTo === id))) ??
-    null
-  )
+  const player = players.find(p => p.id === playerId)
+  const existing = player?.activeTrainingCards.find(tc => copies.includes(tc.cardId))
+  if (existing) return existing.cardId
+  return copies.find(id => !players.some(p => p.activeTrainingCards.some(tc => tc.cardId === id))) ?? null
 }
 
 function pickSideProjectCardId(playerId, players) {
@@ -55,8 +54,8 @@ export default function GameBoard({ state, dispatch }) {
   const [claimingCardId,     setClaimingCardId]     = useState(null)  // marketplace
   const [claimingTrainingKey, setClaimingTrainingKey] = useState(null) // training picker
   const [claimingSideProject, setClaimingSideProject] = useState(false) // side-project picker
-  // Tracks which training copies / side-project copies each player has claimed this round
-  // (before any dice are allocated). Shape: { [playerId]: { trainings: string[], sideProjectId: string|null } }
+  // Tracks which side-project copy each player has claimed this round (UI-only, resets each round).
+  // Shape: { [playerId]: { sideProjectId: string|null } }
   const [claimedByPlayer, setClaimedByPlayer] = useState({})
 
   function handleAdvancePhase() {
@@ -88,12 +87,11 @@ export default function GameBoard({ state, dispatch }) {
   // ── Plan phase — claiming training / side-project into player lane ───────────
 
   function hasClaimedTraining(playerId, key) {
-    const copies = [1, 2, 3].map(n => `training-${key}-${n}`)
     const player = players.find(p => p.id === playerId)
-    return (
-      player?.dice.some(d => copies.includes(d.allocatedTo)) ||
-      (claimedByPlayer[playerId]?.trainings ?? []).some(id => copies.includes(id))
-    )
+    if (!player) return false
+    if (player.completedTrainings.includes(key)) return true
+    const copies = [1, 2, 3].map(n => `training-${key}-${n}`)
+    return player.activeTrainingCards.some(tc => copies.includes(tc.cardId))
   }
 
   function hasClaimedSideProject(playerId) {
@@ -107,17 +105,7 @@ export default function GameBoard({ state, dispatch }) {
   function handleClaimTraining(key, playerId) {
     const cardId = pickTrainingCardId(key, playerId, players)
     if (!cardId) return
-    const copies = [1, 2, 3].map(n => `training-${key}-${n}`)
-    setClaimedByPlayer(prev => ({
-      ...prev,
-      [playerId]: {
-        ...prev[playerId],
-        trainings: [
-          ...((prev[playerId]?.trainings ?? []).filter(id => !copies.includes(id))),
-          cardId,
-        ],
-      },
-    }))
+    dispatch({ type: 'CLAIM_TRAINING_CARD', playerId, cardId })
     setClaimingTrainingKey(null)
   }
 
@@ -141,12 +129,11 @@ export default function GameBoard({ state, dispatch }) {
   // ── Derived ──────────────────────────────────────────────────────────────────
 
   const isPlan = phase === 'plan'
-  const isSet  = phase === 'set'
 
   const trainingAvailable = Object.fromEntries(
     TRAINING_TYPES.map(key => {
       const inUse = [1, 2, 3].filter(n =>
-        players.some(p => p.dice.some(d => d.allocatedTo === `training-${key}-${n}`))
+        players.some(p => p.activeTrainingCards.some(tc => tc.cardId === `training-${key}-${n}`))
       ).length
       return [key, 3 - inUse]
     })
@@ -271,6 +258,7 @@ export default function GameBoard({ state, dispatch }) {
           <PlayerRow
             key={player.id}
             player={player}
+            players={players}
             phase={phase}
             selectedDie={selectedDie}
             playerClaimed={claimedByPlayer[player.id] ?? {}}
@@ -278,6 +266,7 @@ export default function GameBoard({ state, dispatch }) {
             onCardClick={handleCardClick}
             onKeep={() => dispatch({ type: 'KEEP_CARD', playerId: player.id })}
             onPutToMarket={() => dispatch({ type: 'PUT_TO_MARKETPLACE', playerId: player.id })}
+            onDeallocateAll={() => dispatch({ type: 'DEALLOCATE_ALL_NON_LOCKED', playerId: player.id })}
           />
         ))}
       </section>

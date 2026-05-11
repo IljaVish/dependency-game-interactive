@@ -5,29 +5,14 @@ import SideProjectCard from './SideProjectCard.jsx'
 import { COLOURS } from '../data/colours.js'
 import { findCard } from '../game/engine.js'
 
-// Returns training cards that should appear in the player lane, merging engine state
-// (has dice allocated) with UI-claimed state (no dice yet).
+// Returns training cards in the player's lane from engine state.
 // Result: [{ key, cardId, dice[] }]
-function getLaneTrainings(player, playerClaimed) {
-  const result = {}
-
-  // From engine: dice already allocated to a training copy
-  player.dice.forEach(d => {
-    const card = findCard(d.allocatedTo)
-    if (card?.type === 'training') {
-      const key = card.id.split('-')[1]
-      if (!result[key]) result[key] = { cardId: card.id, dice: [] }
-      result[key].dice.push(d)
-    }
-  })
-
-  // From UI claim: card added to lane but no dice yet
-  ;(playerClaimed.trainings ?? []).forEach(cardId => {
-    const key = cardId.split('-')[1]
-    if (!result[key]) result[key] = { cardId, dice: [] }
-  })
-
-  return Object.entries(result).map(([key, v]) => ({ key, ...v }))
+function getLaneTrainings(player) {
+  return player.activeTrainingCards.map(({ cardId }) => ({
+    key: cardId.split('-')[1],
+    cardId,
+    dice: player.dice.filter(d => d.allocatedTo === cardId),
+  }))
 }
 
 // Returns the side-project in the player lane, or null.
@@ -39,27 +24,22 @@ function getLaneSideProject(player, playerClaimed) {
 }
 
 export default function PlayerRow({
-  player, phase, selectedDie, playerClaimed,
-  onDieClick, onCardClick, onKeep, onPutToMarket,
+  player, players, phase, selectedDie, playerClaimed,
+  onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll,
 }) {
   const colour    = COLOURS[player.colour]
-  const ownedCard = player.ownedCard ? findCard(player.ownedCard.cardId) : null
 
   const isPlan        = phase === 'plan'
   const isSet         = phase === 'set'
   const hasDieSelected = selectedDie !== null
 
-  const ownerDiceOnCard = ownedCard
-    ? player.dice.filter(d => d.allocatedTo === player.ownedCard.cardId)
-    : []
-
-  const laneTrainings  = getLaneTrainings(player, playerClaimed)
+  const laneTrainings  = getLaneTrainings(player)
   const laneSideProject = getLaneSideProject(player, playerClaimed)
 
   const pendingCardData = player.pendingCard ? findCard(player.pendingCard.cardId) : null
   const canKeep = !(pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour)
   const hasSetAction = isSet && player.pendingCard
-  const hasCardArea  = ownedCard || laneTrainings.length > 0 || laneSideProject
+  const hasCardArea  = player.ownedCards.length > 0 || laneTrainings.length > 0 || laneSideProject
 
   return (
     <div className="bg-gray-700 rounded-xl p-4 flex flex-col gap-3">
@@ -94,13 +74,21 @@ export default function PlayerRow({
           })}
         </div>
 
-        {player.completedTrainings.length > 0 && (
-          <div className="flex gap-1 ml-auto">
-            {player.completedTrainings.map(t => (
-              <span key={t} className="bg-cyan-800 text-cyan-200 text-xs rounded px-2 py-0.5 capitalize">{t}</span>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center gap-2 ml-auto">
+          {player.completedTrainings.length > 0 && (
+            <div className="flex gap-1">
+              {player.completedTrainings.map(t => (
+                <span key={t} className="bg-cyan-800 text-cyan-200 text-xs rounded px-2 py-0.5 capitalize">{t}</span>
+              ))}
+            </div>
+          )}
+          {isPlan && player.dice.some(d => !d.locked && d.allocatedTo) && (
+            <button onClick={onDeallocateAll}
+              className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
+              Reallocate all
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Set phase: keep / put to market ── */}
@@ -133,44 +121,55 @@ export default function PlayerRow({
       {hasCardArea && (
         <div className="flex gap-6 flex-wrap pt-1 border-t border-gray-600">
 
-          {/* Owned project */}
-          {ownedCard && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
-              <div className="flex items-start gap-3">
-                <ProjectCard
-                  card={ownedCard}
-                  onClick={isPlan && hasDieSelected ? () => onCardClick(ownedCard.id) : undefined}
-                />
-                {ownerDiceOnCard.length > 0 && (
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    <span className="text-xs text-gray-400">owner dice</span>
-                    <div className="flex flex-col gap-1">
-                      {ownerDiceOnCard.map(die => (
-                        <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                          bgColor={die.locked ? '#374151' : colour.hex} pipFill="#ffffff" />
-                      ))}
+          {/* Owned projects */}
+          {player.ownedCards.map(ownedEntry => {
+            const oc = findCard(ownedEntry.cardId)
+            const ownerDice = player.dice.filter(d => d.allocatedTo === ownedEntry.cardId)
+            const depColour = COLOURS[oc.depColour]
+            const depPlayer = players?.find(p => p.colour === oc.depColour)
+            const depAllocated = depPlayer
+              ? depPlayer.dice.filter(d => d.allocatedTo === ownedEntry.cardId)
+              : []
+            return (
+              <div key={ownedEntry.cardId} className="flex flex-col gap-1.5">
+                <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
+                <div className="flex items-start gap-3">
+                  <ProjectCard
+                    card={oc}
+                    onClick={isPlan && hasDieSelected ? () => onCardClick(oc.id) : undefined}
+                  />
+                  {ownerDice.length > 0 && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      <span className="text-xs text-gray-400">owner dice</span>
+                      <div className="flex flex-col gap-1">
+                        {ownerDice.map(die => (
+                          <DieFace key={die.id} value={die.value} className="w-9 h-9"
+                            bgColor={die.locked ? '#374151' : colour.hex} pipFill="#ffffff" />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-                <div className="flex flex-col gap-1.5 pt-1">
-                  <span className="text-xs text-gray-400">dep dice</span>
-                  <div className="flex flex-col gap-1">
-                    {ownedCard.depDice.map((req, i) => {
-                      const depColour = COLOURS[ownedCard.depColour]
-                      return (
-                        <div key={i}
-                          className="w-9 h-9 rounded-lg border-2 border-dashed flex items-center justify-center text-xs font-bold"
-                          style={{ borderColor: depColour.hex, color: depColour.hex }}>
-                          {req}
-                        </div>
-                      )
-                    })}
+                  )}
+                  <div className="flex flex-col gap-1.5 pt-1">
+                    <span className="text-xs text-gray-400">dep dice</span>
+                    <div className="flex flex-col gap-1">
+                      {Array.from({ length: Math.max(depAllocated.length, oc.depDice.length) }, (_, i) => {
+                        const die = depAllocated[i]
+                        const req = oc.depDice[i]
+                        return die
+                          ? <DieFace key={die.id} value={die.value} className="w-9 h-9"
+                              bgColor={die.locked ? '#374151' : depColour.hex} pipFill="#ffffff" />
+                          : <div key={i}
+                              className="w-9 h-9 rounded-lg border-2 border-dashed flex items-center justify-center text-xs font-bold"
+                              style={{ borderColor: depColour.hex, color: depColour.hex }}>
+                              {req}
+                            </div>
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )
+          })}
 
           {/* Training cards in lane */}
           {laneTrainings.map(({ key, cardId, dice }) => (
@@ -188,7 +187,7 @@ export default function PlayerRow({
                     <div className="flex flex-col gap-1">
                       {dice.map(die => (
                         <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                          bgColor="#164e63" pipFill="#a5f3fc" />
+                          bgColor={colour.hex} pipFill="#ffffff" />
                       ))}
                     </div>
                   </div>
@@ -211,7 +210,7 @@ export default function PlayerRow({
                     <div className="flex flex-col gap-1">
                       {laneSideProject.dice.map(die => (
                         <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                          bgColor="#f87171" pipFill="#ffffff" />
+                          bgColor={colour.hex} pipFill="#ffffff" />
                       ))}
                     </div>
                   </div>
