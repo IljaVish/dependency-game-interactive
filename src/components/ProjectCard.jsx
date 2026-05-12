@@ -96,9 +96,15 @@ export default function ProjectCard({
               </div>
             )
           })}
-          {stagingDep.map(die => (
-            <DieFace key={die.id} value={die.value} className="w-6 h-6" bgColor={depColour.hex} pipFill={depPipFill} />
-          ))}
+          {stagingDep.map(die => {
+            const contribKey     = die.id.split('-')[0]
+            const contribColour  = COLOURS[contribKey] ?? depColour
+            const contribPipFill = contribKey === 'yellow' ? '#1f2937' : '#ffffff'
+            return (
+              <DieFace key={die.id} value={die.value} className="w-6 h-6"
+                bgColor={contribColour.hex} pipFill={contribPipFill} />
+            )
+          })}
         </div>
       )}
 

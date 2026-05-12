@@ -37,6 +37,30 @@ export function isTrainingComplete(trainingDef, diceValues) {
   return qualifying.length >= trainingDef.requiredCount
 }
 
+// For display: map each slot index to the locked die that fills it, or null if open.
+// Uses the same greedy hardest-first matching as matchTrainingDice so the visual
+// slot order stays consistent with the locking logic.
+export function assignLockedToSlots(trainingDef, lockedDice) {
+  const count = trainingDef.slots ? trainingDef.slots.length : trainingDef.requiredCount
+  const result = new Array(count).fill(null)
+  if (trainingDef.slots) {
+    const sorted = trainingDef.slots
+      .map((minVal, i) => ({ minVal, i }))
+      .sort((a, b) => b.minVal - a.minVal)
+    const available = [...lockedDice]
+    for (const { minVal, i } of sorted) {
+      const idx = available.findIndex(d => d.value >= minVal)
+      if (idx !== -1) {
+        result[i] = available[idx]
+        available.splice(idx, 1)
+      }
+    }
+  } else {
+    lockedDice.forEach((die, i) => { result[i] = die })
+  }
+  return result
+}
+
 // ─── Project completion ───────────────────────────────────────────────────────
 
 // A project is complete when every required die slot is satisfied.

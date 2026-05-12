@@ -27,16 +27,15 @@ function getLaneSideProject(player, playerClaimed) {
 }
 
 export default function PlayerRow({
-  player, players, phase, selectedDie, playerClaimed,
+  player, players, phase, selectedDie, hasDieSelected, allDiceSelected, onSelectAll, playerClaimed,
   onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll,
   onRollDice, onUseRework, onSetDie,
 }) {
   const colour = COLOURS[player.colour]
 
-  const isPlan         = phase === 'plan'
-  const isSet          = phase === 'set'
-  const isWork         = phase === 'work'
-  const hasDieSelected = selectedDie !== null
+  const isPlan = phase === 'plan'
+  const isSet  = phase === 'set'
+  const isWork = phase === 'work'
 
   // Work phase local UI state — reset whenever phase changes (React prev-prop pattern, no effect needed).
   const [work, setWork] = useState(WORK_INIT)
@@ -71,6 +70,12 @@ export default function PlayerRow({
       })
     } else if (isWork && setDieActive && settingDieId === null && !die.locked) {
       setWork(prev => ({ ...prev, settingDieId: die.id }))
+    } else if (isWork && !reworkActive && !setDieActive && !die.locked) {
+      if (canRework) {
+        setWork({ ...WORK_INIT, reworkActive: true, reworkDieIds: [die.id] })
+      } else if (canSetDie) {
+        setWork({ ...WORK_INIT, setDieActive: true, settingDieId: die.id })
+      }
     }
   }
 
@@ -100,12 +105,13 @@ export default function PlayerRow({
           {player.dice.map(die => {
             const isReworkSelected  = reworkDieIds.includes(die.id)
             const isSetSelected     = settingDieId === die.id
+            const isAllSelected     = allDiceSelected && !die.locked && die.allocatedTo === null
             const isPlanClickable   = isPlan && !die.locked
-            const isReworkClickable = isWork && reworkActive && !die.locked
-            const isSetClickable    = isWork && setDieActive && settingDieId === null && !die.locked
+            const isReworkClickable = isWork && (reworkActive || canRework) && !die.locked
+            const isSetClickable    = isWork && (setDieActive || canSetDie) && settingDieId === null && !die.locked
             const isClickable       = isPlanClickable || isReworkClickable || isSetClickable
 
-            const ringClass = (selectedDie?.dieId === die.id || isReworkSelected)
+            const ringClass = (selectedDie?.dieId === die.id || isReworkSelected || isAllSelected)
               ? ' ring-2 ring-yellow-300'
               : isSetSelected ? ' ring-2 ring-green-400' : ''
 
@@ -125,6 +131,20 @@ export default function PlayerRow({
             )
           })}
         </div>
+
+        {/* Plan phase: select all free dice */}
+        {isPlan && player.dice.some(d => !d.locked && d.allocatedTo === null) && (
+          <button
+            onClick={onSelectAll}
+            className={`text-xs border rounded px-2 py-0.5 cursor-pointer ${
+              allDiceSelected
+                ? 'border-yellow-400 text-yellow-300'
+                : 'border-gray-500 text-gray-400 hover:text-white hover:border-gray-300'
+            }`}
+          >
+            Select all
+          </button>
+        )}
 
         <div className="flex items-center gap-2 ml-auto flex-wrap">
           {/* Training badges */}
@@ -243,8 +263,8 @@ export default function PlayerRow({
           {player.ownedCards.map(ownedEntry => {
             const oc = findCard(ownedEntry.cardId)
             const ownerDice = player.dice.filter(d => d.allocatedTo === ownedEntry.cardId)
-            const depPlayer = players?.find(p => p.colour === oc.depColour)
-            const depDice   = depPlayer ? depPlayer.dice.filter(d => d.allocatedTo === ownedEntry.cardId) : []
+            const depDice   = players?.filter(p => p.colour !== player.colour)
+              .flatMap(p => p.dice.filter(d => d.allocatedTo === ownedEntry.cardId)) ?? []
             return (
               <div key={ownedEntry.cardId} className="flex flex-col gap-1.5">
                 <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
@@ -254,7 +274,7 @@ export default function PlayerRow({
                   allocatedOwnerDice={ownerDice}
                   allocatedDepDice={depDice}
                   ownerColour={player.colour}
-                  onOwnerStagingDieClick={isWork && (reworkActive || setDieActive) ? handleDieClick : undefined}
+                  onOwnerStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
                   reworkDieIds={reworkDieIds}
                   settingDieId={settingDieId}
                 />
@@ -272,7 +292,7 @@ export default function PlayerRow({
                 onClick={isPlan && hasDieSelected ? () => onCardClick(cardId) : undefined}
                 allocatedDice={dice}
                 diceColour={player.colour}
-                onStagingDieClick={isWork && (reworkActive || setDieActive) ? handleDieClick : undefined}
+                onStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
                 reworkDieIds={reworkDieIds}
                 settingDieId={settingDieId}
               />
@@ -287,7 +307,7 @@ export default function PlayerRow({
                 onClick={isPlan && hasDieSelected ? () => onCardClick(laneSideProject.cardId) : undefined}
                 allocatedDice={laneSideProject.dice}
                 diceColour={player.colour}
-                onStagingDieClick={isWork && (reworkActive || setDieActive) ? handleDieClick : undefined}
+                onStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
                 reworkDieIds={reworkDieIds}
                 settingDieId={settingDieId}
               />

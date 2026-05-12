@@ -3,6 +3,7 @@ import Card from './Card.jsx'
 import DieRequirement from './DieRequirement.jsx'
 import { COLOURS } from '../data/colours.js'
 import { TRAINING_DEFINITIONS } from '../data/cards.js'
+import { assignLockedToSlots } from '../game/rules.js'
 
 export default function TrainingCard({
   trainingKey, copies = 3, onClick,
@@ -13,9 +14,10 @@ export default function TrainingCard({
   const colourHex  = diceColour ? COLOURS[diceColour].hex : '#6b7280'
   const pipFill    = diceColour === 'yellow' ? '#1f2937' : '#ffffff'
 
-  const lockedDice  = allocatedDice.filter(d => d.locked)
-  const stagingDice = allocatedDice.filter(d => !d.locked)
-  const slotCount   = def.slots ? def.slots.length : def.requiredCount
+  const lockedDice    = allocatedDice.filter(d => d.locked)
+  const stagingDice   = allocatedDice.filter(d => !d.locked)
+  const slotCount     = def.slots ? def.slots.length : def.requiredCount
+  const slotAssigned  = assignLockedToSlots(def, lockedDice)
 
   return (
     <Card
@@ -52,7 +54,7 @@ export default function TrainingCard({
       {/* Slot row — locked dice replace requirement indicators when matched */}
       <div className="flex gap-1 flex-wrap mt-auto pt-1">
         {Array.from({ length: slotCount }, (_, i) => {
-          const lockedDie = lockedDice[i]
+          const lockedDie = slotAssigned[i]
           if (lockedDie) {
             return <DieFace key={i} value={lockedDie.value} className="w-7 h-7" bgColor="#374151" pipFill="#ffffff" />
           }

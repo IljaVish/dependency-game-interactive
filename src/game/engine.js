@@ -194,15 +194,22 @@ export function matchDiceToSlots(requiredSlots, entries) {
 }
 
 // Exported for unit testing.
-// Match training card completion: returns { tolock: dieId[] } only if training is fully satisfied.
-// Uses greedy minimum-value matching (hardest slot first for slot-based definitions).
+// Returns { tolock: dieId[] } — the newly-unlocked dice to lock based on current rolls.
+// Accounts for already-locked dice from prior rounds: their slots are removed before matching.
 export function matchTrainingDice(trainingDef, diceEntries) {
-  const pool = diceEntries.filter(e => !e.die.locked && e.die.value !== null)
+  const locked = diceEntries.filter(e => e.die.locked)
+  const pool   = diceEntries.filter(e => !e.die.locked && e.die.value !== null)
   const tolock = []
   if (trainingDef.slots) {
-    const sorted = [...trainingDef.slots].sort((a, b) => b - a)
+    // Start with all slots sorted hardest-first; remove those already covered by locked dice.
+    const remaining = [...trainingDef.slots].sort((a, b) => b - a)
+    for (const e of locked) {
+      const idx = remaining.findIndex(minVal => e.die.value >= minVal)
+      if (idx !== -1) remaining.splice(idx, 1)
+    }
+    // Match remaining unsatisfied slots against newly rolled (unlocked) dice.
     const available = [...pool]
-    for (const minVal of sorted) {
+    for (const minVal of remaining) {
       const idx = available.findIndex(e => e.die.value >= minVal)
       if (idx !== -1) {
         tolock.push(available[idx].die.id)
@@ -210,9 +217,11 @@ export function matchTrainingDice(trainingDef, diceEntries) {
       }
     }
   } else {
+    // Subtract already-locked slots so we don't exceed requiredCount.
+    const stillNeeded = Math.max(0, trainingDef.requiredCount - locked.length)
     pool
       .filter(e => e.die.value >= trainingDef.requiredMin)
-      .slice(0, trainingDef.requiredCount)
+      .slice(0, stillNeeded)
       .forEach(e => tolock.push(e.die.id))
   }
   return { tolock }
@@ -646,6 +655,37 @@ export function gameReducer(state, action) {
         ...p,
         dice: p.dice.map(d => d.locked ? d : { ...d, allocatedTo: null }),
       }))
+    }
+
+    case 'ALLOCATE_ALL_TO_CARD': {
+      // action: { playerId, cardId }
+      // Allocates all free (unlocked, unallocated) dice of the player to the card.
+      // Subject to the same guards as ALLOCATE_DIE.
+      return updatePlayer(state, action.playerId, p => {
+        const card = findCard(action.cardId)
+        if (!card) return p
+        if (card.type === 'training') {
+          if (!p.activeTrainingCards.some(tc => tc.cardId === action.cardId)) return p
+        }
+        if (card.type === 'sideProject') {
+          const claimed = state.players.some(
+            op => op.id !== action.playerId && op.dice.some(d => d.allocatedTo === action.cardId)
+          )
+          if (claimed) return p
+        }
+        if (card.type === 'project') {
+          const ownerPlayer = state.players.find(op => op.ownedCards.some(oc => oc.cardId === action.cardId))
+          if (ownerPlayer && ownerPlayer.id !== action.playerId) {
+            if (p.colour !== card.depColour && !p.completedTrainings.includes('support')) return p
+          }
+        }
+        return {
+          ...p,
+          dice: p.dice.map(d =>
+            !d.locked && d.allocatedTo === null ? { ...d, allocatedTo: action.cardId } : d
+          ),
+        }
+      })
     }
 
     case 'SET_DIE_VALUE': {

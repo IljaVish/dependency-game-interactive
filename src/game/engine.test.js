@@ -126,6 +126,19 @@ describe('matchTrainingDice — set training (slots ≥6, ≥5, ≥4)', () => {
     expect(r.tolock).toHaveLength(2)
   })
 
+  it('does not re-lock slots already covered by locked dice', () => {
+    // ≥5 and ≥4 already locked from a prior round; only ≥6 remains open.
+    // Extra unlocked 5s and 4s must NOT be locked again for those slots.
+    const r = matchTrainingDice(setDef, [entry(5, true), entry(4, true), entry(5), entry(4), entry(3)])
+    expect(r.tolock).toHaveLength(0)
+  })
+
+  it('locks only the remaining slot when prior dice cover easier slots', () => {
+    // ≥5 and ≥4 already locked; a 6 is now rolled — should lock only that one
+    const r = matchTrainingDice(setDef, [entry(5, true), entry(4, true), entry(6)])
+    expect(r.tolock).toHaveLength(1)
+  })
+
   it('locks nothing for a value below all slot minimums', () => {
     const r = matchTrainingDice(setDef, [entry(3)])
     expect(r.tolock).toHaveLength(0)
@@ -152,6 +165,12 @@ describe('matchTrainingDice — rework training (2 dice ≥4)', () => {
   it('does not lock more than requiredCount dice', () => {
     const r = matchTrainingDice(reworkDef, [entry(4), entry(5), entry(6)])
     expect(r.tolock).toHaveLength(2)
+  })
+
+  it('does not exceed requiredCount when partial progress exists from a prior round', () => {
+    // 1 die already locked; only 1 more needed, even though 3 qualify
+    const r = matchTrainingDice(reworkDef, [entry(5, true), entry(4), entry(5), entry(6)])
+    expect(r.tolock).toHaveLength(1)
   })
 
   it('locks nothing when no dice qualify', () => {
@@ -505,6 +524,79 @@ describe('ADVANCE_TO_SCORE — training card persistence', () => {
     expect(persistedDie.locked).toBe(true)
     expect(persistedDie.value).toBe(5)
     expect(persistedDie.allocatedTo).toBe('training-rework-1')
+  })
+})
+
+// ─── ALLOCATE_ALL_TO_CARD ─────────────────────────────────────────────────────
+
+describe('ALLOCATE_ALL_TO_CARD', () => {
+  it('allocates all free (unlocked, unallocated) dice to the card', () => {
+    const state = makeState({
+      phase: 'plan',
+      players: [
+        makePlayer('p1', 'green', {
+          ownedCards: [{ cardId: 'project-blue-1', drawnRound: 1 }],
+          dice: [
+            makeDie('green-0'),
+            makeDie('green-1'),
+            makeDie('green-2', { locked: true, allocatedTo: 'project-blue-1' }),
+            makeDie('green-3', { allocatedTo: 'project-blue-1' }),
+            makeDie('green-4'),
+          ],
+        }),
+      ],
+    })
+    const next = gameReducer(state, { type: 'ALLOCATE_ALL_TO_CARD', playerId: 'p1', cardId: 'project-blue-1' })
+    const p = next.players[0]
+    expect(p.dice.find(d => d.id === 'green-0').allocatedTo).toBe('project-blue-1')
+    expect(p.dice.find(d => d.id === 'green-1').allocatedTo).toBe('project-blue-1')
+    expect(p.dice.find(d => d.id === 'green-2').allocatedTo).toBe('project-blue-1')  // locked, unchanged
+    expect(p.dice.find(d => d.id === 'green-3').allocatedTo).toBe('project-blue-1')  // already allocated, unchanged
+    expect(p.dice.find(d => d.id === 'green-4').allocatedTo).toBe('project-blue-1')
+  })
+
+  it('does not allocate when player is wrong dep colour and has no support training', () => {
+    // project-blue-1 has depColour 'blue'; a green player without support cannot contribute as dep
+    const ownerPlayer = makePlayer('p2', 'blue', {
+      ownedCards: [{ cardId: 'project-blue-1', drawnRound: 1 }],
+    })
+    const contributor = makePlayer('p1', 'green')
+    const state = makeState({ phase: 'plan', players: [contributor, ownerPlayer] })
+    const next = gameReducer(state, { type: 'ALLOCATE_ALL_TO_CARD', playerId: 'p1', cardId: 'project-blue-1' })
+    expect(next.players[0].dice.every(d => d.allocatedTo === null)).toBe(true)
+  })
+
+  it('does not allocate when side project already claimed by another player', () => {
+    const state = makeState({
+      phase: 'plan',
+      players: [
+        makePlayer('p1', 'green'),
+        makePlayer('p2', 'blue', {
+          dice: [
+            makeDie('blue-0', { allocatedTo: 'side-1' }),
+            ...Array.from({ length: 4 }, (_, i) => makeDie(`blue-${i + 1}`)),
+          ],
+        }),
+      ],
+    })
+    const next = gameReducer(state, { type: 'ALLOCATE_ALL_TO_CARD', playerId: 'p1', cardId: 'side-1' })
+    expect(next.players[0].dice.every(d => d.allocatedTo === null)).toBe(true)
+  })
+
+  it('is a no-op when player has no free dice', () => {
+    const state = makeState({
+      phase: 'plan',
+      players: [
+        makePlayer('p1', 'green', {
+          ownedCards: [{ cardId: 'project-blue-1', drawnRound: 1 }],
+          dice: Array.from({ length: 5 }, (_, i) =>
+            makeDie(`green-${i}`, { locked: true, allocatedTo: 'project-blue-1' })
+          ),
+        }),
+      ],
+    })
+    const next = gameReducer(state, { type: 'ALLOCATE_ALL_TO_CARD', playerId: 'p1', cardId: 'project-blue-1' })
+    expect(next).toStrictEqual(state)
   })
 })
 

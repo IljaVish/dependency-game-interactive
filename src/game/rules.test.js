@@ -6,6 +6,7 @@ import {
   urgentPenaltyAccrued,
   canOwnProject,
   filterDeckForPlayerCount,
+  assignLockedToSlots,
 } from './rules.js'
 import { TRAINING_DEFINITIONS } from '../data/cards.js'
 
@@ -172,5 +173,49 @@ describe('filterDeckForPlayerCount', () => {
   })
   it('returns empty when no dep colours match', () => {
     expect(filterDeckForPlayerCount(cards, ['yellow', 'orange'])).toHaveLength(0)
+  })
+})
+
+// ─── assignLockedToSlots ──────────────────────────────────────────────────────
+
+describe('assignLockedToSlots — set training (slots ≥6, ≥5, ≥4)', () => {
+  function die(value) { return { value } }
+
+  it('bug scenario 1: locked [4,5] — 4 goes to ≥4, 5 to ≥5, ≥6 stays open', () => {
+    // Roll 2,4,5,2 → only 4 and 5 lock. ≥6 slot must remain open (index 0).
+    const r = assignLockedToSlots(set, [die(4), die(5)])
+    expect(r[0]).toBeNull()         // ≥6 open
+    expect(r[1].value).toBe(5)      // ≥5 filled
+    expect(r[2].value).toBe(4)      // ≥4 filled
+  })
+
+  it('bug scenario 2: locked [4,6] — 6 goes to ≥6, 4 to ≥4, ≥5 stays open', () => {
+    // Roll 4,2,1,2,6 → 4 and 6 lock. ≥5 slot must remain open (index 1).
+    const r = assignLockedToSlots(set, [die(4), die(6)])
+    expect(r[0].value).toBe(6)      // ≥6 filled
+    expect(r[1]).toBeNull()         // ≥5 open
+    expect(r[2].value).toBe(4)      // ≥4 filled
+  })
+
+  it('all three slots filled correctly', () => {
+    const r = assignLockedToSlots(set, [die(4), die(5), die(6)])
+    expect(r[0].value).toBe(6)
+    expect(r[1].value).toBe(5)
+    expect(r[2].value).toBe(4)
+  })
+
+  it('returns all nulls when no dice are locked', () => {
+    const r = assignLockedToSlots(set, [])
+    expect(r).toEqual([null, null, null])
+  })
+})
+
+describe('assignLockedToSlots — rework training (2 dice ≥4)', () => {
+  function die(value) { return { value } }
+
+  it('fills slots positionally for requiredMin/requiredCount training', () => {
+    const r = assignLockedToSlots(rework, [die(5)])
+    expect(r[0].value).toBe(5)
+    expect(r[1]).toBeNull()
   })
 })

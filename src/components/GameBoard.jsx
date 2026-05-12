@@ -29,6 +29,12 @@ const NEXT_LABEL = {
 const TRAINING_TYPES = ['rework', 'support', 'set']
 const MARKETPLACE_SLOTS = 3
 
+function fmtDesc(desc) {
+  return desc.replace(/project-(\w+)-(\d+)/, (_, colour, n) =>
+    `${colour[0].toUpperCase()}${colour.slice(1)} project #${n}`
+  )
+}
+
 function pickTrainingCardId(key, playerId, players) {
   const copies = [1, 2, 3].map(n => `training-${key}-${n}`)
   const player = players.find(p => p.id === playerId)
@@ -50,10 +56,11 @@ export default function GameBoard({ state, dispatch }) {
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
 
   // ── UI-only state ────────────────────────────────────────────────────────────
-  const [selectedDie,        setSelectedDie]        = useState(null)
-  const [claimingCardId,     setClaimingCardId]     = useState(null)  // marketplace
-  const [claimingTrainingKey, setClaimingTrainingKey] = useState(null) // training picker
-  const [claimingSideProject, setClaimingSideProject] = useState(false) // side-project picker
+  const [selectedDie,           setSelectedDie]           = useState(null)
+  const [allDiceSelectedFor,    setAllDiceSelectedFor]    = useState(null) // playerId | null
+  const [claimingCardId,        setClaimingCardId]        = useState(null)  // marketplace
+  const [claimingTrainingKey,   setClaimingTrainingKey]   = useState(null) // training picker
+  const [claimingSideProject,   setClaimingSideProject]   = useState(false) // side-project picker
   // Tracks which side-project copy each player has claimed this round (UI-only, resets each round).
   // Shape: { [playerId]: { sideProjectId: string|null } }
   const [claimedByPlayer, setClaimedByPlayer] = useState({})
@@ -61,6 +68,7 @@ export default function GameBoard({ state, dispatch }) {
   function handleAdvancePhase() {
     dispatch({ type: NEXT_ACTION[phase] })
     setSelectedDie(null)
+    setAllDiceSelectedFor(null)
     setClaimingCardId(null)
     setClaimingTrainingKey(null)
     setClaimingSideProject(false)
@@ -71,6 +79,7 @@ export default function GameBoard({ state, dispatch }) {
 
   function handleDieClick(playerId, die) {
     if (phase !== 'plan' || die.locked) return
+    setAllDiceSelectedFor(null)
     if (die.allocatedTo !== null) {
       dispatch({ type: 'DEALLOCATE_DIE', playerId, dieId: die.id })
       return
@@ -78,8 +87,19 @@ export default function GameBoard({ state, dispatch }) {
     setSelectedDie(prev => prev?.dieId === die.id ? null : { playerId, dieId: die.id })
   }
 
+  function handleSelectAll(playerId) {
+    setSelectedDie(null)
+    setAllDiceSelectedFor(prev => prev === playerId ? null : playerId)
+  }
+
   function handleCardClick(cardId) {
-    if (phase !== 'plan' || !selectedDie) return
+    if (phase !== 'plan') return
+    if (allDiceSelectedFor) {
+      dispatch({ type: 'ALLOCATE_ALL_TO_CARD', playerId: allDiceSelectedFor, cardId })
+      setAllDiceSelectedFor(null)
+      return
+    }
+    if (!selectedDie) return
     dispatch({ type: 'ALLOCATE_DIE', playerId: selectedDie.playerId, dieId: selectedDie.dieId, cardId })
     setSelectedDie(null)
   }
@@ -128,7 +148,8 @@ export default function GameBoard({ state, dispatch }) {
 
   // ── Derived ──────────────────────────────────────────────────────────────────
 
-  const isPlan = phase === 'plan'
+  const isPlan         = phase === 'plan'
+  const anyDiceSelected = !!selectedDie || !!allDiceSelectedFor
 
   const trainingAvailable = Object.fromEntries(
     TRAINING_TYPES.map(key => {
@@ -193,6 +214,49 @@ export default function GameBoard({ state, dispatch }) {
           }
         </div>
       </div>
+
+      {/* ── Score phase: round summary ── */}
+      {phase === 'score' && (() => {
+        const rs = state.roundScores[state.roundScores.length - 1]
+        if (!rs) return null
+        const roundDelta = rs.entries.reduce((s, e) => s + e.points, 0)
+        return (
+          <section className="bg-gray-800 rounded-xl p-4">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Round {round} Score</h2>
+            {rs.entries.length === 0 ? (
+              <p className="text-sm text-gray-500 italic">Nothing scored this round.</p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {rs.entries.map((entry, i) => {
+                  const p = entry.playerId ? players.find(pl => pl.id === entry.playerId) : null
+                  const hex = p ? COLOURS[p.colour].hex : '#9ca3af'
+                  const isTraining = entry.points === 0
+                  return (
+                    <div key={i} className="flex items-center gap-3 text-sm">
+                      <span className="w-20 text-xs font-medium flex-shrink-0" style={{ color: hex }}>
+                        {p ? p.name : 'Team'}
+                      </span>
+                      <span className="flex-1 text-gray-300">{fmtDesc(entry.description)}</span>
+                      {isTraining
+                        ? <span className="text-cyan-400 text-xs font-semibold flex-shrink-0">✓ unlocked</span>
+                        : <span className={`font-semibold flex-shrink-0 ${entry.points > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {entry.points > 0 ? '+' : ''}{entry.points} pts
+                          </span>
+                      }
+                    </div>
+                  )
+                })}
+                <div className="flex items-center justify-between pt-2 mt-1 border-t border-gray-600 text-sm font-semibold">
+                  <span className="text-gray-400">Round {round} total</span>
+                  <span className={roundDelta >= 0 ? 'text-green-400' : 'text-red-400'}>
+                    {roundDelta > 0 ? '+' : ''}{roundDelta} pts
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+        )
+      })()}
 
       {/* ── Marketplace ── */}
       <section className="bg-gray-800 rounded-xl p-4">
@@ -273,6 +337,9 @@ export default function GameBoard({ state, dispatch }) {
             players={players}
             phase={phase}
             selectedDie={selectedDie}
+            hasDieSelected={anyDiceSelected}
+            allDiceSelected={allDiceSelectedFor === player.id}
+            onSelectAll={() => handleSelectAll(player.id)}
             playerClaimed={claimedByPlayer[player.id] ?? {}}
             onDieClick={(die) => handleDieClick(player.id, die)}
             onCardClick={handleCardClick}
