@@ -170,16 +170,28 @@ export default function GameBoard({ state, dispatch }) {
           <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-widest ${PHASE_COLOURS[phase]}`}>
             {PHASE_LABELS[phase]}
           </span>
+          <span className="text-sm text-gray-300">Team: <span className="font-semibold text-white">{state.teamScore}</span> pts</span>
         </div>
-        {gameOver
-          ? <span className="text-green-400 font-bold">Game over — final score: {state.teamScore}</span>
-          : <button
-              onClick={handleAdvancePhase}
-              className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+        <div className="flex items-center gap-3">
+          {phase === 'work' && (
+            <button
+              onClick={() => dispatch({ type: 'ROLL_ALL_DICE' })}
+              disabled={!players.some(p => p.dice.some(d => d.value === null))}
+              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer"
             >
-              {NEXT_LABEL[phase]}
+              Roll all dice
             </button>
-        }
+          )}
+          {gameOver
+            ? <span className="text-green-400 font-bold">Game over — final score: {state.teamScore}</span>
+            : <button
+                onClick={handleAdvancePhase}
+                className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+              >
+                {NEXT_LABEL[phase]}
+              </button>
+          }
+        </div>
       </div>
 
       {/* ── Marketplace ── */}
@@ -267,6 +279,9 @@ export default function GameBoard({ state, dispatch }) {
             onKeep={() => dispatch({ type: 'KEEP_CARD', playerId: player.id })}
             onPutToMarket={() => dispatch({ type: 'PUT_TO_MARKETPLACE', playerId: player.id })}
             onDeallocateAll={() => dispatch({ type: 'DEALLOCATE_ALL_NON_LOCKED', playerId: player.id })}
+            onRollDice={() => dispatch({ type: 'ROLL_PLAYER_DICE', playerId: player.id })}
+            onUseRework={(dieIds) => dispatch({ type: 'USE_REWORK', playerId: player.id, dieIds })}
+            onSetDie={(dieId, value) => dispatch({ type: 'SET_DIE_VALUE', playerId: player.id, dieId, value })}
           />
         ))}
       </section>

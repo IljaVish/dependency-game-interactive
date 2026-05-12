@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import DieFace from './DieFace.jsx'
 import ProjectCard from './ProjectCard.jsx'
 import TrainingCard from './TrainingCard.jsx'
@@ -15,6 +16,8 @@ function getLaneTrainings(player) {
   }))
 }
 
+const WORK_INIT = { reworkActive: false, reworkDieIds: [], setDieActive: false, settingDieId: null }
+
 // Returns the side-project in the player lane, or null.
 function getLaneSideProject(player, playerClaimed) {
   const sideDice = player.dice.filter(d => findCard(d.allocatedTo)?.type === 'sideProject')
@@ -26,25 +29,65 @@ function getLaneSideProject(player, playerClaimed) {
 export default function PlayerRow({
   player, players, phase, selectedDie, playerClaimed,
   onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll,
+  onRollDice, onUseRework, onSetDie,
 }) {
-  const colour    = COLOURS[player.colour]
+  const colour = COLOURS[player.colour]
 
-  const isPlan        = phase === 'plan'
-  const isSet         = phase === 'set'
+  const isPlan         = phase === 'plan'
+  const isSet          = phase === 'set'
+  const isWork         = phase === 'work'
   const hasDieSelected = selectedDie !== null
 
-  const laneTrainings  = getLaneTrainings(player)
+  // Work phase local UI state — reset whenever phase changes (React prev-prop pattern, no effect needed).
+  const [work, setWork] = useState(WORK_INIT)
+  const [prevPhase, setPrevPhase] = useState(phase)
+  if (prevPhase !== phase) {
+    setPrevPhase(phase)
+    setWork(WORK_INIT)
+  }
+  const { reworkActive, reworkDieIds, setDieActive, settingDieId } = work
+
+  const laneTrainings   = getLaneTrainings(player)
   const laneSideProject = getLaneSideProject(player, playerClaimed)
 
   const pendingCardData = player.pendingCard ? findCard(player.pendingCard.cardId) : null
-  const canKeep = !(pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour)
+  const canKeep      = !(pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour)
   const hasSetAction = isSet && player.pendingCard
   const hasCardArea  = player.ownedCards.length > 0 || laneTrainings.length > 0 || laneSideProject
+
+  const canRoll   = isWork && player.dice.some(d => d.value === null)
+  const canRework = isWork && player.completedTrainings.includes('rework') && !player.reworkUsed
+  const canSetDie = isWork && player.completedTrainings.includes('set') && !player.setDieUsed
+
+  function handleDieClick(die) {
+    if (isPlan && !die.locked) {
+      onDieClick(die)
+    } else if (isWork && reworkActive && !die.locked) {
+      setWork(prev => {
+        const ids = prev.reworkDieIds
+        const next = ids.includes(die.id) ? ids.filter(id => id !== die.id)
+          : ids.length < 2 ? [...ids, die.id] : ids
+        return { ...prev, reworkDieIds: next }
+      })
+    } else if (isWork && setDieActive && settingDieId === null && !die.locked) {
+      setWork(prev => ({ ...prev, settingDieId: die.id }))
+    }
+  }
+
+  function confirmRework() {
+    onUseRework(reworkDieIds)
+    setWork(WORK_INIT)
+  }
+
+  function confirmSetDie(value) {
+    onSetDie(settingDieId, value)
+    setWork(WORK_INIT)
+  }
 
   return (
     <div className="bg-gray-700 rounded-xl p-4 flex flex-col gap-3">
 
-      {/* ── Header: name + score + dice ── */}
+      {/* ── Header: name + score + dice + actions ── */}
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2 w-28 flex-shrink-0">
           <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: colour.hex }} />
@@ -55,17 +98,26 @@ export default function PlayerRow({
 
         <div className="flex gap-1.5">
           {player.dice.map(die => {
-            const isSelected  = selectedDie?.dieId === die.id
-            const isClickable = isPlan && !die.locked
+            const isReworkSelected  = reworkDieIds.includes(die.id)
+            const isSetSelected     = settingDieId === die.id
+            const isPlanClickable   = isPlan && !die.locked
+            const isReworkClickable = isWork && reworkActive && !die.locked
+            const isSetClickable    = isWork && setDieActive && settingDieId === null && !die.locked
+            const isClickable       = isPlanClickable || isReworkClickable || isSetClickable
+
+            const ringClass = (selectedDie?.dieId === die.id || isReworkSelected)
+              ? ' ring-2 ring-yellow-300'
+              : isSetSelected ? ' ring-2 ring-green-400' : ''
+
             return (
               <div
                 key={die.id}
-                onClick={isClickable ? () => onDieClick(die) : undefined}
+                onClick={isClickable ? () => handleDieClick(die) : undefined}
                 className={isClickable ? 'cursor-pointer' : undefined}
               >
                 <DieFace
                   value={die.value}
-                  className={`w-9 h-9${isSelected ? ' ring-2 ring-yellow-300' : ''}`}
+                  className={`w-9 h-9${ringClass}`}
                   bgColor={die.locked ? '#374151' : die.allocatedTo ? colour.hex : '#e5e7eb'}
                   pipFill={die.locked || die.allocatedTo ? '#ffffff' : '#1f2937'}
                 />
@@ -74,7 +126,8 @@ export default function PlayerRow({
           })}
         </div>
 
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          {/* Training badges */}
           {player.completedTrainings.length > 0 && (
             <div className="flex gap-1">
               {player.completedTrainings.map(t => (
@@ -82,14 +135,79 @@ export default function PlayerRow({
               ))}
             </div>
           )}
+
+          {/* Plan phase: reallocate all */}
           {isPlan && player.dice.some(d => !d.locked && d.allocatedTo) && (
             <button onClick={onDeallocateAll}
               className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
               Reallocate all
             </button>
           )}
+
+          {/* Work phase: roll this player's dice */}
+          {canRoll && (
+            <button onClick={onRollDice}
+              className="text-xs bg-orange-700 hover:bg-orange-600 text-white rounded px-2 py-0.5 cursor-pointer font-medium">
+              Roll
+            </button>
+          )}
+
+          {/* Work phase: rework (reroll 2 dice) */}
+          {canRework && !reworkActive && (
+            <button
+              onClick={() => setWork({ ...WORK_INIT, reworkActive: true })}
+              className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
+              Rework
+            </button>
+          )}
+          {reworkActive && (
+            <>
+              <span className="text-xs text-yellow-300">{reworkDieIds.length}/2</span>
+              {reworkDieIds.length === 2 && (
+                <button onClick={confirmRework}
+                  className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white rounded px-2 py-0.5 cursor-pointer">
+                  Reroll
+                </button>
+              )}
+              <button onClick={() => setWork(WORK_INIT)}
+                className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer">✕</button>
+            </>
+          )}
+
+          {/* Work phase: set die to chosen value */}
+          {canSetDie && !setDieActive && (
+            <button
+              onClick={() => setWork({ ...WORK_INIT, setDieActive: true })}
+              className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
+              Set die
+            </button>
+          )}
+          {setDieActive && !settingDieId && (
+            <>
+              <span className="text-xs text-green-300">click a die</span>
+              <button onClick={() => setWork(WORK_INIT)}
+                className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer">✕</button>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Work phase: value picker shown after a die is selected for Set */}
+      {setDieActive && settingDieId && (
+        <div className="flex items-center gap-2 pt-1 border-t border-gray-600">
+          <span className="text-xs text-gray-400">Set to:</span>
+          {[1, 2, 3, 4, 5, 6].map(v => (
+            <button key={v} onClick={() => confirmSetDie(v)}
+              className="w-7 h-7 rounded bg-gray-600 hover:bg-green-700 text-sm font-bold cursor-pointer">
+              {v}
+            </button>
+          ))}
+          <button onClick={() => setWork(WORK_INIT)}
+            className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer ml-1">
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* ── Set phase: keep / put to market ── */}
       {hasSetAction && (
@@ -125,48 +243,21 @@ export default function PlayerRow({
           {player.ownedCards.map(ownedEntry => {
             const oc = findCard(ownedEntry.cardId)
             const ownerDice = player.dice.filter(d => d.allocatedTo === ownedEntry.cardId)
-            const depColour = COLOURS[oc.depColour]
             const depPlayer = players?.find(p => p.colour === oc.depColour)
-            const depAllocated = depPlayer
-              ? depPlayer.dice.filter(d => d.allocatedTo === ownedEntry.cardId)
-              : []
+            const depDice   = depPlayer ? depPlayer.dice.filter(d => d.allocatedTo === ownedEntry.cardId) : []
             return (
               <div key={ownedEntry.cardId} className="flex flex-col gap-1.5">
                 <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
-                <div className="flex items-start gap-3">
-                  <ProjectCard
-                    card={oc}
-                    onClick={isPlan && hasDieSelected ? () => onCardClick(oc.id) : undefined}
-                  />
-                  {ownerDice.length > 0 && (
-                    <div className="flex flex-col gap-1.5 pt-1">
-                      <span className="text-xs text-gray-400">owner dice</span>
-                      <div className="flex flex-col gap-1">
-                        {ownerDice.map(die => (
-                          <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                            bgColor={die.locked ? '#374151' : colour.hex} pipFill="#ffffff" />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    <span className="text-xs text-gray-400">dep dice</span>
-                    <div className="flex flex-col gap-1">
-                      {Array.from({ length: Math.max(depAllocated.length, oc.depDice.length) }, (_, i) => {
-                        const die = depAllocated[i]
-                        const req = oc.depDice[i]
-                        return die
-                          ? <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                              bgColor={die.locked ? '#374151' : depColour.hex} pipFill="#ffffff" />
-                          : <div key={i}
-                              className="w-9 h-9 rounded-lg border-2 border-dashed flex items-center justify-center text-xs font-bold"
-                              style={{ borderColor: depColour.hex, color: depColour.hex }}>
-                              {req}
-                            </div>
-                      })}
-                    </div>
-                  </div>
-                </div>
+                <ProjectCard
+                  card={oc}
+                  onClick={isPlan && hasDieSelected ? () => onCardClick(oc.id) : undefined}
+                  allocatedOwnerDice={ownerDice}
+                  allocatedDepDice={depDice}
+                  ownerColour={player.colour}
+                  onOwnerStagingDieClick={isWork && (reworkActive || setDieActive) ? handleDieClick : undefined}
+                  reworkDieIds={reworkDieIds}
+                  settingDieId={settingDieId}
+                />
               </div>
             )
           })}
@@ -175,24 +266,16 @@ export default function PlayerRow({
           {laneTrainings.map(({ key, cardId, dice }) => (
             <div key={key} className="flex flex-col gap-1.5">
               <span className="text-xs text-gray-400 uppercase tracking-wide">Training</span>
-              <div className="flex items-start gap-3">
-                <TrainingCard
-                  trainingKey={key}
-                  copies={null}
-                  onClick={isPlan && hasDieSelected ? () => onCardClick(cardId) : undefined}
-                />
-                {dice.length > 0 && (
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    <span className="text-xs text-gray-400">dice</span>
-                    <div className="flex flex-col gap-1">
-                      {dice.map(die => (
-                        <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                          bgColor={colour.hex} pipFill="#ffffff" />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <TrainingCard
+                trainingKey={key}
+                copies={null}
+                onClick={isPlan && hasDieSelected ? () => onCardClick(cardId) : undefined}
+                allocatedDice={dice}
+                diceColour={player.colour}
+                onStagingDieClick={isWork && (reworkActive || setDieActive) ? handleDieClick : undefined}
+                reworkDieIds={reworkDieIds}
+                settingDieId={settingDieId}
+              />
             </div>
           ))}
 
@@ -200,22 +283,14 @@ export default function PlayerRow({
           {laneSideProject && (
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-gray-400 uppercase tracking-wide">Side Project</span>
-              <div className="flex items-start gap-3">
-                <SideProjectCard
-                  onClick={isPlan && hasDieSelected ? () => onCardClick(laneSideProject.cardId) : undefined}
-                />
-                {laneSideProject.dice.length > 0 && (
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    <span className="text-xs text-gray-400">dice</span>
-                    <div className="flex flex-col gap-1">
-                      {laneSideProject.dice.map(die => (
-                        <DieFace key={die.id} value={die.value} className="w-9 h-9"
-                          bgColor={colour.hex} pipFill="#ffffff" />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <SideProjectCard
+                onClick={isPlan && hasDieSelected ? () => onCardClick(laneSideProject.cardId) : undefined}
+                allocatedDice={laneSideProject.dice}
+                diceColour={player.colour}
+                onStagingDieClick={isWork && (reworkActive || setDieActive) ? handleDieClick : undefined}
+                reworkDieIds={reworkDieIds}
+                settingDieId={settingDieId}
+              />
             </div>
           )}
         </div>

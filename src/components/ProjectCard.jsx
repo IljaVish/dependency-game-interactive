@@ -32,31 +32,75 @@ function Arrow() {
   )
 }
 
-export default function ProjectCard({ card, onClick }) {
-  const colour    = COLOURS[card.depColour]
-  const depPipFill = card.depColour === 'yellow' ? '#1f2937' : '#ffffff'
+// allocatedOwnerDice / allocatedDepDice: die objects from engine state.
+// Locked dice (matched in a prior round) go into their slot; others go to staging.
+export default function ProjectCard({
+  card, onClick,
+  allocatedOwnerDice = [], allocatedDepDice = [],
+  ownerColour = null,
+  onOwnerStagingDieClick = null, reworkDieIds = [], settingDieId = null,
+}) {
+  const depColour    = COLOURS[card.depColour]
+  const depPipFill   = card.depColour === 'yellow' ? '#1f2937' : '#ffffff'
+  const ownerHex     = ownerColour ? COLOURS[ownerColour].hex : '#9ca3af'
+  const ownerPipFill = ownerColour === 'yellow' ? '#1f2937' : '#ffffff'
+
+  const lockedOwner  = allocatedOwnerDice.filter(d => d.locked)
+  const stagingOwner = allocatedOwnerDice.filter(d => !d.locked)
+  const lockedDep    = allocatedDepDice.filter(d => d.locked)
+  const stagingDep   = allocatedDepDice.filter(d => !d.locked)
+
+  const hasStaging = stagingOwner.length > 0 || stagingDep.length > 0
 
   return (
     <Card
       className={`bg-white ${onClick ? 'border border-blue-400 hover:shadow-blue-200 hover:shadow-xl' : 'border border-gray-200'}`}
       onClick={onClick}
     >
-      {/* Dice row */}
+      {/* Slot row — requirement indicators, replaced by locked dice when matched */}
       <div className="flex items-center">
-        <div className="flex gap-1.5">
-          {card.ownerDice.map((v, i) => (
-            <DieFace key={i} value={v} className="w-9 h-9" bgColor="#e5e7eb" pipFill="#1f2937" />
-          ))}
+        <div className="flex gap-1">
+          {card.ownerDice.map((req, i) => {
+            const die = lockedOwner[i]
+            return die
+              ? <DieFace key={i} value={die.value} className="w-7 h-7" bgColor="#374151" pipFill="#ffffff" />
+              : <DieFace key={i} value={req} className="w-7 h-7" bgColor="#e5e7eb" pipFill="#1f2937" />
+          })}
         </div>
-        <div className="flex-1 flex justify-center">
-          <Arrow />
-        </div>
-        <div className="flex gap-1.5">
-          {card.depDice.map((v, i) => (
-            <DieFace key={i} value={v} className="w-9 h-9" bgColor={colour.hex} pipFill={depPipFill} />
-          ))}
+        <div className="flex-1 flex justify-center"><Arrow /></div>
+        <div className="flex gap-1">
+          {card.depDice.map((req, i) => {
+            const die = lockedDep[i]
+            return die
+              ? <DieFace key={i} value={die.value} className="w-7 h-7" bgColor="#374151" pipFill="#ffffff" />
+              : <DieFace key={i} value={req} className="w-7 h-7" bgColor={depColour.hex} pipFill={depPipFill} />
+          })}
         </div>
       </div>
+
+      {/* Staging area — allocated but not yet matched dice sit here */}
+      {hasStaging && (
+        <div className="flex gap-1 flex-wrap mt-2">
+          {stagingOwner.map(die => {
+            const isReworkSelected = reworkDieIds.includes(die.id)
+            const isSetSelected    = settingDieId === die.id
+            const ringClass = isReworkSelected ? ' ring-2 ring-yellow-300'
+              : isSetSelected ? ' ring-2 ring-green-400' : ''
+            return (
+              <div
+                key={die.id}
+                onClick={onOwnerStagingDieClick ? () => onOwnerStagingDieClick(die) : undefined}
+                className={onOwnerStagingDieClick ? 'cursor-pointer' : undefined}
+              >
+                <DieFace value={die.value} className={`w-6 h-6${ringClass}`} bgColor={ownerHex} pipFill={ownerPipFill} />
+              </div>
+            )
+          })}
+          {stagingDep.map(die => (
+            <DieFace key={die.id} value={die.value} className="w-6 h-6" bgColor={depColour.hex} pipFill={depPipFill} />
+          ))}
+        </div>
+      )}
 
       {/* Badge row */}
       <div className="flex items-center mt-auto">

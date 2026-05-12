@@ -43,10 +43,13 @@ export function findCard(id) {
 //       allocatedTo: null | cardId
 //       locked: boolean      (true = die matched a required slot; value is permanent, cannot be reallocated)
 //     }]
-//     ownedCard: null | { cardId: string, drawnRound: number }
+//     ownedCards: [{ cardId: string, drawnRound: number }]
+//                            (array; players can own multiple projects simultaneously)
+//     activeTrainingCards: [{ cardId: string }]
+//                            (training copies in the player's lane; persists until training completes)
 //     pendingCard: null | { cardId: string, drawnRound: number }
 //                            (drawn this round, not yet decided to keep or put to marketplace)
-//     completedTrainings: string[]    (training type keys: 'rework', 'support', 'set')
+//     completedTrainings: string[]    (training type keys: 'rework', 'support', 'set'; active from next round)
 //     reworkUsed: boolean    (reroll-2 ability, resets each round)
 //     setDieUsed: boolean    (set-1-die ability, resets each round)
 //     needsDraw: boolean     (true = player draws one card this Set phase; starts true for all players in round 1,
@@ -157,10 +160,11 @@ function drawFromDeck(deck) {
 
 // ─── Slot matching ────────────────────────────────────────────────────────────
 
+// Exported for unit testing.
 // Match required slot values against dice entries, accounting for already-locked dice.
 // Locked dice are treated as pre-matched (their values are permanent from a prior round).
 // Returns { tolock: dieId[], tofree: dieId[], allSatisfied: boolean }
-function matchDiceToSlots(requiredSlots, entries) {
+export function matchDiceToSlots(requiredSlots, entries) {
   const lockedEntries = entries.filter(e => e.die.locked)
   const newEntries    = entries.filter(e => !e.die.locked)
 
@@ -187,6 +191,101 @@ function matchDiceToSlots(requiredSlots, entries) {
     tofree: pool.map(e => e.die.id),
     allSatisfied: tolock.length === remaining.length,
   }
+}
+
+// Exported for unit testing.
+// Match training card completion: returns { tolock: dieId[] } only if training is fully satisfied.
+// Uses greedy minimum-value matching (hardest slot first for slot-based definitions).
+export function matchTrainingDice(trainingDef, diceEntries) {
+  const pool = diceEntries.filter(e => !e.die.locked && e.die.value !== null)
+  const tolock = []
+  if (trainingDef.slots) {
+    const sorted = [...trainingDef.slots].sort((a, b) => b - a)
+    const available = [...pool]
+    for (const minVal of sorted) {
+      const idx = available.findIndex(e => e.die.value >= minVal)
+      if (idx !== -1) {
+        tolock.push(available[idx].die.id)
+        available.splice(idx, 1)
+      }
+    }
+  } else {
+    pool
+      .filter(e => e.die.value >= trainingDef.requiredMin)
+      .slice(0, trainingDef.requiredCount)
+      .forEach(e => tolock.push(e.die.id))
+  }
+  return { tolock }
+}
+
+// ─── Work phase matching ──────────────────────────────────────────────────────
+
+// After rolling, lock any dice that have matched their project card slots.
+// Unmatched-but-rolled dice stay allocated (in staging) for potential Rework.
+// Only frees dice at Score phase — this function never frees.
+function applyWorkMatches(state) {
+  const cardIds = new Set()
+  state.players.forEach(p =>
+    p.dice.forEach(d => {
+      if (d.allocatedTo && findCard(d.allocatedTo)?.type === 'project') cardIds.add(d.allocatedTo)
+    })
+  )
+
+  let players = state.players
+
+  for (const cardId of cardIds) {
+    const card = findCard(cardId)
+    const ownerPlayer = players.find(p => p.ownedCards.some(oc => oc.cardId === cardId))
+    if (!ownerPlayer) continue
+
+    // Only include dice that have been rolled (value !== null) or are already locked.
+    const ownerEntries = ownerPlayer.dice
+      .filter(d => d.allocatedTo === cardId && (d.locked || d.value !== null))
+      .map(d => ({ die: d, player: ownerPlayer }))
+
+    const depEntries = players
+      .filter(p => p.id !== ownerPlayer.id)
+      .flatMap(p =>
+        p.dice
+          .filter(d => d.allocatedTo === cardId && (d.locked || d.value !== null))
+          .map(d => ({ die: d, player: p }))
+      )
+
+    const ownerResult = matchDiceToSlots(card.ownerDice, ownerEntries)
+    const depResult   = matchDiceToSlots(card.depDice, depEntries)
+    const toLockIds   = new Set([...ownerResult.tolock, ...depResult.tolock])
+    if (toLockIds.size === 0) continue
+
+    players = players.map(p => ({
+      ...p,
+      dice: p.dice.map(d => toLockIds.has(d.id) ? { ...d, locked: true } : d),
+    }))
+  }
+
+  // Training card matching — collect tasks first, then process with updated players
+  const trainingTasks = []
+  players.forEach(p =>
+    p.activeTrainingCards.forEach(tc => trainingTasks.push({ playerId: p.id, cardId: tc.cardId }))
+  )
+  for (const { playerId, cardId } of trainingTasks) {
+    const trainingKey = cardId.split('-')[1]
+    const trainingDef = TRAINING_DEFINITIONS[trainingKey]
+    if (!trainingDef) continue
+    const ownerPlayer = players.find(p => p.id === playerId)
+    if (!ownerPlayer) continue
+    const trainingEntries = ownerPlayer.dice
+      .filter(d => d.allocatedTo === cardId && (d.locked || d.value !== null))
+      .map(d => ({ die: d, player: ownerPlayer }))
+    const { tolock } = matchTrainingDice(trainingDef, trainingEntries)
+    if (tolock.length === 0) continue
+    const toLockIds = new Set(tolock)
+    players = players.map(p => ({
+      ...p,
+      dice: p.dice.map(d => toLockIds.has(d.id) ? { ...d, locked: true } : d),
+    }))
+  }
+
+  return { ...state, players }
 }
 
 // ─── Score phase logic ────────────────────────────────────────────────────────
@@ -237,8 +336,6 @@ function scoreRound(state) {
       const complete = isTrainingComplete(trainingDef, diceValues)
       const alreadyHas = updatedPlayer.completedTrainings.includes(trainingDef.id)
 
-      // Training has no partial progress — dice are always freed after each round
-      // so the player re-allocates fresh next round with new rolls.
       if (complete && !alreadyHas) {
         updatedPlayer = {
           ...updatedPlayer,
@@ -246,12 +343,20 @@ function scoreRound(state) {
           activeTrainingCards: updatedPlayer.activeTrainingCards.filter(tc => tc.cardId !== cardId),
         }
         entries.push({ playerId: player.id, description: `Training: ${trainingDef.label}`, points: 0 })
+        // Free all dice (including locked) once training is completed.
+        updatedPlayer = updateDiceWhere(
+          updatedPlayer,
+          d => dice.some(td => td.id === d.id),
+          d => ({ ...d, allocatedTo: null, locked: false })
+        )
+      } else {
+        // Partial progress: locked dice stay allocated for next round; only free unmatched staging dice.
+        updatedPlayer = updateDiceWhere(
+          updatedPlayer,
+          d => dice.some(td => td.id === d.id) && !d.locked,
+          d => ({ ...d, allocatedTo: null })
+        )
       }
-      updatedPlayer = updateDiceWhere(
-        updatedPlayer,
-        d => dice.some(td => td.id === d.id),
-        d => ({ ...d, allocatedTo: null, locked: false })
-      )
     }
 
     return updatedPlayer
@@ -418,7 +523,7 @@ export function gameReducer(state, action) {
       const pendingCardData = findCard(player.pendingCard.cardId)
       if (pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour) return state
 
-      return updatePlayer(
+      const next = updatePlayer(
         state,
         action.playerId,
         p => ({
@@ -428,6 +533,7 @@ export function gameReducer(state, action) {
           needsDraw: false,
         })
       )
+      return next.players.every(p => p.pendingCard === null) ? { ...next, phase: 'plan' } : next
     }
 
     case 'PUT_TO_MARKETPLACE': {
@@ -438,7 +544,7 @@ export function gameReducer(state, action) {
       const player = state.players.find(p => p.id === action.playerId)
       if (!player?.pendingCard) return state
 
-      return updatePlayer(
+      const next = updatePlayer(
         {
           ...state,
           marketplace: [...state.marketplace, player.pendingCard],
@@ -446,6 +552,7 @@ export function gameReducer(state, action) {
         action.playerId,
         p => ({ ...p, pendingCard: null, needsDraw: false })
       )
+      return next.players.every(p => p.pendingCard === null) ? { ...next, phase: 'plan' } : next
     }
 
     case 'TAKE_FROM_MARKETPLACE': {
@@ -544,16 +651,18 @@ export function gameReducer(state, action) {
     case 'SET_DIE_VALUE': {
       // action: { playerId, dieId, value }
       // Requires 'set' training; sets a die's value without rolling. Once per round.
-      return updatePlayer(state, action.playerId, p => {
-        if (!p.completedTrainings.includes('set')) return p
-        if (p.setDieUsed) return p
-        const die = p.dice.find(d => d.id === action.dieId)
-        if (!die || die.locked) return p
-        return {
-          ...updateDie(p, action.dieId, d => ({ ...d, value: action.value })),
-          setDieUsed: true,
-        }
-      })
+      return applyWorkMatches(
+        updatePlayer(state, action.playerId, p => {
+          if (!p.completedTrainings.includes('set')) return p
+          if (p.setDieUsed) return p
+          const die = p.dice.find(d => d.id === action.dieId)
+          if (!die || die.locked) return p
+          return {
+            ...updateDie(p, action.dieId, d => ({ ...d, value: action.value })),
+            setDieUsed: true,
+          }
+        })
+      )
     }
 
     // ── Work phase ─────────────────────────────────────────────────────────────
@@ -571,27 +680,45 @@ export function gameReducer(state, action) {
           ),
         }
       })
-      return { ...state, players }
+      return applyWorkMatches({ ...state, players })
+    }
+
+    case 'ROLL_PLAYER_DICE': {
+      // action: { playerId }
+      // Rolls all null-value dice belonging to this player (including those allocated to other players' cards).
+      return applyWorkMatches(
+        updatePlayer(state, action.playerId, p => {
+          const unset = p.dice.filter(d => d.value === null)
+          const rolled = rollDice(unset.length)
+          let i = 0
+          return {
+            ...p,
+            dice: p.dice.map(d => d.value === null ? { ...d, value: rolled[i++] } : d),
+          }
+        })
+      )
     }
 
     case 'USE_REWORK': {
       // action: { playerId, dieIds: [id1, id2] }
       // Rerolls exactly 2 dice. Requires 'rework' training. Once per round.
-      return updatePlayer(state, action.playerId, p => {
-        if (!p.completedTrainings.includes('rework')) return p
-        if (p.reworkUsed) return p
-        if (action.dieIds.length !== 2) return p
-        const rerolled = rollDice(2)
-        let i = 0
-        return {
-          ...updateDiceWhere(
-            p,
-            d => action.dieIds.includes(d.id),
-            d => ({ ...d, value: rerolled[i++] })
-          ),
-          reworkUsed: true,
-        }
-      })
+      return applyWorkMatches(
+        updatePlayer(state, action.playerId, p => {
+          if (!p.completedTrainings.includes('rework')) return p
+          if (p.reworkUsed) return p
+          if (action.dieIds.length !== 2) return p
+          const rerolled = rollDice(2)
+          let i = 0
+          return {
+            ...updateDiceWhere(
+              p,
+              d => action.dieIds.includes(d.id),
+              d => ({ ...d, value: rerolled[i++] })
+            ),
+            reworkUsed: true,
+          }
+        })
+      )
     }
 
     // ── Phase transitions ──────────────────────────────────────────────────────

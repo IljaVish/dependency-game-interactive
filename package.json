@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "mcp:build": "tsc -p mcp/tsconfig.json",
     "mcp:start": "node mcp-dist/server.js",
-    "lint": "eslint '**/*.ts' '**/*.tsx'"
+    "lint": "eslint '**/*.ts' '**/*.tsx'",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -28,6 +30,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "tailwindcss": "^4.2.4",
     "typescript": "^6.0.3",
-    "vite": "^5.4.1"
+    "vite": "^5.4.1",
+    "vitest": "^4.1.6"
   }
 }
