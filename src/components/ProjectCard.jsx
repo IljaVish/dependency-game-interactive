@@ -39,6 +39,7 @@ export default function ProjectCard({
   allocatedOwnerDice = [], allocatedDepDice = [],
   ownerColour = null,
   onOwnerStagingDieClick = null, reworkDieIds = [], settingDieId = null,
+  onDepStagingDieClick = null, depReworkDieIds = [], depSettingDieId = null,
 }) {
   const depColour    = COLOURS[card.depColour]
   const depPipFill   = card.depColour === 'yellow' ? '#1f2937' : '#ffffff'
@@ -100,9 +101,17 @@ export default function ProjectCard({
             const contribKey     = die.id.split('-')[0]
             const contribColour  = COLOURS[contribKey] ?? depColour
             const contribPipFill = contribKey === 'yellow' ? '#1f2937' : '#ffffff'
+            const ringClass = depReworkDieIds.includes(die.id) ? ' ring-2 ring-yellow-300'
+              : depSettingDieId === die.id ? ' ring-2 ring-green-400' : ''
             return (
-              <DieFace key={die.id} value={die.value} className="w-6 h-6"
-                bgColor={contribColour.hex} pipFill={contribPipFill} />
+              <div
+                key={die.id}
+                onClick={onDepStagingDieClick ? () => onDepStagingDieClick(die) : undefined}
+                className={onDepStagingDieClick ? 'cursor-pointer' : undefined}
+              >
+                <DieFace value={die.value} className={`w-6 h-6${ringClass}`}
+                  bgColor={contribColour.hex} pipFill={contribPipFill} />
+              </div>
             )
           })}
         </div>

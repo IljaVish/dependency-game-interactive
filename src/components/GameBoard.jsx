@@ -27,6 +27,7 @@ const NEXT_LABEL = {
 }
 
 const TRAINING_TYPES = ['rework', 'support', 'set']
+const WORK_INIT = { reworkActive: false, reworkDieIds: [], setDieActive: false, settingDieId: null }
 const MARKETPLACE_SLOTS = 3
 
 function fmtDesc(desc) {
@@ -64,11 +65,21 @@ export default function GameBoard({ state, dispatch }) {
   // Tracks which side-project copy each player has claimed this round (UI-only, resets each round).
   // Shape: { [playerId]: { sideProjectId: string|null } }
   const [claimedByPlayer, setClaimedByPlayer] = useState({})
+  const [rollAllPending,   setRollAllPending]  = useState(false)
+  const [advancePending,   setAdvancePending]  = useState(false)
+  const [workModes,        setWorkModes]       = useState({})
 
   function handleAdvancePhase() {
+    if (phase === 'plan' && planToWorkWarnings.length > 0 && !advancePending) {
+      setAdvancePending(true)
+      return
+    }
     dispatch({ type: NEXT_ACTION[phase] })
     setSelectedDie(null)
     setAllDiceSelectedFor(null)
+    setRollAllPending(false)
+    setAdvancePending(false)
+    setWorkModes({})
     setClaimingCardId(null)
     setClaimingTrainingKey(null)
     setClaimingSideProject(false)
@@ -146,17 +157,79 @@ export default function GameBoard({ state, dispatch }) {
     setClaimingCardId(null)
   }
 
+  // ── Work phase — mode management (lifted here so dep-die clicks across rows work) ──
+
+  function getWorkMode(playerId) { return workModes[playerId] ?? WORK_INIT }
+
+  function handleWorkDieClick(die) {
+    const ownerColour = die.id.split('-')[0]
+    const owner = players.find(p => p.colour === ownerColour)
+    if (!owner) return
+    const canRework = owner.completedTrainings.includes('rework') && !owner.reworkUsed
+      && owner.dice.every(d => d.value !== null)
+    const canSetDie = owner.completedTrainings.includes('set') && !owner.setDieUsed
+      && owner.dice.some(d => d.value === null)
+    setWorkModes(prev => {
+      const m = prev[owner.id] ?? WORK_INIT
+      if (m.reworkActive && !die.locked) {
+        const ids = m.reworkDieIds
+        const next = ids.includes(die.id) ? ids.filter(id => id !== die.id)
+          : ids.length < 2 ? [...ids, die.id] : ids
+        return { ...prev, [owner.id]: { ...m, reworkDieIds: next } }
+      }
+      if (m.setDieActive && m.settingDieId === null && !die.locked)
+        return { ...prev, [owner.id]: { ...m, settingDieId: die.id } }
+      if (!m.reworkActive && !m.setDieActive && !die.locked) {
+        if (canRework) return { ...prev, [owner.id]: { ...WORK_INIT, reworkActive: true, reworkDieIds: [die.id] } }
+        if (canSetDie) return { ...prev, [owner.id]: { ...WORK_INIT, setDieActive: true, settingDieId: die.id } }
+      }
+      return prev
+    })
+  }
+
+  function handleActivateRework(playerId) {
+    setWorkModes(prev => ({ ...prev, [playerId]: { ...WORK_INIT, reworkActive: true } }))
+  }
+  function handleActivateSetDie(playerId) {
+    setWorkModes(prev => ({ ...prev, [playerId]: { ...WORK_INIT, setDieActive: true } }))
+  }
+  function handleConfirmRework(playerId) {
+    const mode = getWorkMode(playerId)
+    dispatch({ type: 'USE_REWORK', playerId, dieIds: mode.reworkDieIds })
+    setWorkModes(prev => { const n = { ...prev }; delete n[playerId]; return n })
+  }
+  function handleConfirmSetDie(playerId, value) {
+    const mode = getWorkMode(playerId)
+    dispatch({ type: 'SET_DIE_VALUE', playerId, dieId: mode.settingDieId, value })
+    setWorkModes(prev => { const n = { ...prev }; delete n[playerId]; return n })
+  }
+  function handleCancelWorkMode(playerId) {
+    setWorkModes(prev => { const n = { ...prev }; delete n[playerId]; return n })
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
 
   const isPlan         = phase === 'plan'
   const anyDiceSelected = !!selectedDie || !!allDiceSelectedFor
+
+  const rollAllWarnings = phase === 'work' ? players
+    .filter(p => p.dice.some(d => d.value === null)
+      && p.completedTrainings.includes('set') && !p.setDieUsed)
+    .map(p => `${p.name} hasn't used Set Die.`)
+    : []
+
+  const planToWorkWarnings = phase === 'plan' ? players.flatMap(p => {
+    const n = p.dice.filter(d => !d.locked && d.allocatedTo === null).length
+    return n > 0 ? [`${p.name} has ${n} unallocated dice.`] : []
+  }) : []
 
   const trainingAvailable = Object.fromEntries(
     TRAINING_TYPES.map(key => {
       const inUse = [1, 2, 3].filter(n =>
         players.some(p => p.activeTrainingCards.some(tc => tc.cardId === `training-${key}-${n}`))
       ).length
-      return [key, 3 - inUse]
+      const completed = players.filter(p => p.completedTrainings.includes(key)).length
+      return [key, 3 - inUse - completed]
     })
   )
 
@@ -194,23 +267,49 @@ export default function GameBoard({ state, dispatch }) {
           <span className="text-sm text-gray-300">Team: <span className="font-semibold text-white">{state.teamScore}</span> pts</span>
         </div>
         <div className="flex items-center gap-3">
-          {phase === 'work' && (
+          {phase === 'work' && !rollAllPending && (
             <button
-              onClick={() => dispatch({ type: 'ROLL_ALL_DICE' })}
+              onClick={() => {
+                if (rollAllWarnings.length > 0) { setRollAllPending(true) }
+                else { dispatch({ type: 'ROLL_ALL_DICE' }) }
+              }}
               disabled={!players.some(p => p.dice.some(d => d.value === null))}
               className="bg-orange-600 hover:bg-orange-500 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer"
             >
               Roll all dice
             </button>
           )}
+          {rollAllPending && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-yellow-300">{rollAllWarnings.join(' ')}</span>
+              <button
+                onClick={() => { dispatch({ type: 'ROLL_ALL_DICE' }); setRollAllPending(false) }}
+                className="bg-orange-600 hover:bg-orange-500 px-3 py-1.5 rounded-lg font-semibold text-sm cursor-pointer"
+              >
+                Roll anyway
+              </button>
+              <button onClick={() => setRollAllPending(false)}
+                className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
+            </div>
+          )}
           {gameOver
             ? <span className="text-green-400 font-bold">Game over — final score: {state.teamScore}</span>
-            : <button
-                onClick={handleAdvancePhase}
-                className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
-              >
-                {NEXT_LABEL[phase]}
-              </button>
+            : advancePending
+              ? <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
+                  <button onClick={handleAdvancePhase}
+                    className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer">
+                    Start Work anyway
+                  </button>
+                  <button onClick={() => setAdvancePending(false)}
+                    className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
+                </div>
+              : <button
+                  onClick={handleAdvancePhase}
+                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                >
+                  {NEXT_LABEL[phase]}
+                </button>
           }
         </div>
       </div>
@@ -347,8 +446,14 @@ export default function GameBoard({ state, dispatch }) {
             onPutToMarket={() => dispatch({ type: 'PUT_TO_MARKETPLACE', playerId: player.id })}
             onDeallocateAll={() => dispatch({ type: 'DEALLOCATE_ALL_NON_LOCKED', playerId: player.id })}
             onRollDice={() => dispatch({ type: 'ROLL_PLAYER_DICE', playerId: player.id })}
-            onUseRework={(dieIds) => dispatch({ type: 'USE_REWORK', playerId: player.id, dieIds })}
-            onSetDie={(dieId, value) => dispatch({ type: 'SET_DIE_VALUE', playerId: player.id, dieId, value })}
+            workMode={getWorkMode(player.id)}
+            workModes={workModes}
+            onWorkDieClick={handleWorkDieClick}
+            onActivateRework={() => handleActivateRework(player.id)}
+            onActivateSetDie={() => handleActivateSetDie(player.id)}
+            onConfirmRework={() => handleConfirmRework(player.id)}
+            onConfirmSetDie={(value) => handleConfirmSetDie(player.id, value)}
+            onCancelWorkMode={() => handleCancelWorkMode(player.id)}
           />
         ))}
       </section>

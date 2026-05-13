@@ -28,8 +28,9 @@ function getLaneSideProject(player, playerClaimed) {
 
 export default function PlayerRow({
   player, players, phase, selectedDie, hasDieSelected, allDiceSelected, onSelectAll, playerClaimed,
-  onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll,
-  onRollDice, onUseRework, onSetDie,
+  onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll, onRollDice,
+  workMode = WORK_INIT, workModes = {},
+  onWorkDieClick, onActivateRework, onActivateSetDie, onConfirmRework, onConfirmSetDie, onCancelWorkMode,
 }) {
   const colour = COLOURS[player.colour]
 
@@ -37,14 +38,15 @@ export default function PlayerRow({
   const isSet  = phase === 'set'
   const isWork = phase === 'work'
 
-  // Work phase local UI state — reset whenever phase changes (React prev-prop pattern, no effect needed).
-  const [work, setWork] = useState(WORK_INIT)
+  // showRollWarning is the only work-phase UI state remaining locally; the mode state
+  // (reworkActive etc.) was lifted to GameBoard so dep-die clicks across rows work.
+  const [showRollWarning, setShowRollWarning] = useState(false)
   const [prevPhase, setPrevPhase] = useState(phase)
   if (prevPhase !== phase) {
     setPrevPhase(phase)
-    setWork(WORK_INIT)
+    setShowRollWarning(false)
   }
-  const { reworkActive, reworkDieIds, setDieActive, settingDieId } = work
+  const { reworkActive, reworkDieIds, setDieActive, settingDieId } = workMode
 
   const laneTrainings   = getLaneTrainings(player)
   const laneSideProject = getLaneSideProject(player, playerClaimed)
@@ -56,37 +58,18 @@ export default function PlayerRow({
 
   const canRoll   = isWork && player.dice.some(d => d.value === null)
   const canRework = isWork && player.completedTrainings.includes('rework') && !player.reworkUsed
+                    && player.dice.every(d => d.value !== null)
   const canSetDie = isWork && player.completedTrainings.includes('set') && !player.setDieUsed
+                    && player.dice.some(d => d.value === null)
+
+  const rollWarnings = canRoll && canSetDie ? ["You haven't used Set Die yet."] : []
 
   function handleDieClick(die) {
     if (isPlan && !die.locked) {
       onDieClick(die)
-    } else if (isWork && reworkActive && !die.locked) {
-      setWork(prev => {
-        const ids = prev.reworkDieIds
-        const next = ids.includes(die.id) ? ids.filter(id => id !== die.id)
-          : ids.length < 2 ? [...ids, die.id] : ids
-        return { ...prev, reworkDieIds: next }
-      })
-    } else if (isWork && setDieActive && settingDieId === null && !die.locked) {
-      setWork(prev => ({ ...prev, settingDieId: die.id }))
-    } else if (isWork && !reworkActive && !setDieActive && !die.locked) {
-      if (canRework) {
-        setWork({ ...WORK_INIT, reworkActive: true, reworkDieIds: [die.id] })
-      } else if (canSetDie) {
-        setWork({ ...WORK_INIT, setDieActive: true, settingDieId: die.id })
-      }
+    } else if (isWork) {
+      onWorkDieClick?.(die)
     }
-  }
-
-  function confirmRework() {
-    onUseRework(reworkDieIds)
-    setWork(WORK_INIT)
-  }
-
-  function confirmSetDie(value) {
-    onSetDie(settingDieId, value)
-    setWork(WORK_INIT)
   }
 
   return (
@@ -165,17 +148,29 @@ export default function PlayerRow({
           )}
 
           {/* Work phase: roll this player's dice */}
-          {canRoll && (
-            <button onClick={onRollDice}
+          {canRoll && !showRollWarning && (
+            <button
+              onClick={() => rollWarnings.length > 0 ? setShowRollWarning(true) : onRollDice()}
               className="text-xs bg-orange-700 hover:bg-orange-600 text-white rounded px-2 py-0.5 cursor-pointer font-medium">
               Roll
             </button>
+          )}
+          {showRollWarning && (
+            <>
+              <span className="text-xs text-yellow-300">{rollWarnings.join(' ')}</span>
+              <button onClick={() => { onRollDice(); setShowRollWarning(false) }}
+                className="text-xs bg-orange-700 hover:bg-orange-600 text-white rounded px-2 py-0.5 cursor-pointer font-medium">
+                Roll anyway
+              </button>
+              <button onClick={() => setShowRollWarning(false)}
+                className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer">Cancel</button>
+            </>
           )}
 
           {/* Work phase: rework (reroll 2 dice) */}
           {canRework && !reworkActive && (
             <button
-              onClick={() => setWork({ ...WORK_INIT, reworkActive: true })}
+              onClick={onActivateRework}
               className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
               Rework
             </button>
@@ -184,12 +179,12 @@ export default function PlayerRow({
             <>
               <span className="text-xs text-yellow-300">{reworkDieIds.length}/2</span>
               {reworkDieIds.length === 2 && (
-                <button onClick={confirmRework}
+                <button onClick={onConfirmRework}
                   className="text-xs bg-yellow-600 hover:bg-yellow-500 text-white rounded px-2 py-0.5 cursor-pointer">
                   Reroll
                 </button>
               )}
-              <button onClick={() => setWork(WORK_INIT)}
+              <button onClick={onCancelWorkMode}
                 className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer">✕</button>
             </>
           )}
@@ -197,7 +192,7 @@ export default function PlayerRow({
           {/* Work phase: set die to chosen value */}
           {canSetDie && !setDieActive && (
             <button
-              onClick={() => setWork({ ...WORK_INIT, setDieActive: true })}
+              onClick={onActivateSetDie}
               className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
               Set die
             </button>
@@ -205,7 +200,7 @@ export default function PlayerRow({
           {setDieActive && !settingDieId && (
             <>
               <span className="text-xs text-green-300">click a die</span>
-              <button onClick={() => setWork(WORK_INIT)}
+              <button onClick={onCancelWorkMode}
                 className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer">✕</button>
             </>
           )}
@@ -217,12 +212,12 @@ export default function PlayerRow({
         <div className="flex items-center gap-2 pt-1 border-t border-gray-600">
           <span className="text-xs text-gray-400">Set to:</span>
           {[1, 2, 3, 4, 5, 6].map(v => (
-            <button key={v} onClick={() => confirmSetDie(v)}
+            <button key={v} onClick={() => onConfirmSetDie(v)}
               className="w-7 h-7 rounded bg-gray-600 hover:bg-green-700 text-sm font-bold cursor-pointer">
               {v}
             </button>
           ))}
-          <button onClick={() => setWork(WORK_INIT)}
+          <button onClick={onCancelWorkMode}
             className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer ml-1">
             Cancel
           </button>
@@ -265,6 +260,12 @@ export default function PlayerRow({
             const ownerDice = player.dice.filter(d => d.allocatedTo === ownedEntry.cardId)
             const depDice   = players?.filter(p => p.colour !== player.colour)
               .flatMap(p => p.dice.filter(d => d.allocatedTo === ownedEntry.cardId)) ?? []
+            // Ring highlights for dep dice come from the dep players' work modes (not the owner's).
+            const allModes = Object.values(workModes)
+            const depReworkDieIds = allModes.flatMap(m => m.reworkDieIds)
+              .filter(id => depDice.some(d => d.id === id))
+            const depSettingDieId = depDice.map(d => d.id)
+              .find(id => allModes.some(m => m.settingDieId === id)) ?? null
             return (
               <div key={ownedEntry.cardId} className="flex flex-col gap-1.5">
                 <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
@@ -275,8 +276,11 @@ export default function PlayerRow({
                   allocatedDepDice={depDice}
                   ownerColour={player.colour}
                   onOwnerStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
+                  onDepStagingDieClick={isWork && onWorkDieClick ? onWorkDieClick : undefined}
                   reworkDieIds={reworkDieIds}
                   settingDieId={settingDieId}
+                  depReworkDieIds={depReworkDieIds}
+                  depSettingDieId={depSettingDieId}
                 />
               </div>
             )
