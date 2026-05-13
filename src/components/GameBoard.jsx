@@ -44,11 +44,14 @@ function pickTrainingCardId(key, playerId, players) {
   return copies.find(id => !players.some(p => p.activeTrainingCards.some(tc => tc.cardId === id))) ?? null
 }
 
-function pickSideProjectCardId(playerId, players) {
+function pickSideProjectCardId(playerId, players, claimedByPlayer) {
   const copies = Array.from({ length: 6 }, (_, i) => `side-${i + 1}`)
+  const takenByOthers = id =>
+    players.some(p => p.id !== playerId && p.dice.some(d => d.allocatedTo === id)) ||
+    Object.entries(claimedByPlayer).some(([pid, c]) => pid !== playerId && c?.sideProjectId === id)
   return (
     copies.find(id => players.find(p => p.id === playerId)?.dice.some(d => d.allocatedTo === id)) ??
-    copies.find(id => !players.some(p => p.id !== playerId && p.dice.some(d => d.allocatedTo === id))) ??
+    copies.find(id => !takenByOthers(id)) ??
     null
   )
 }
@@ -146,7 +149,7 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
   }
 
   function handleClaimSideProject(playerId) {
-    const cardId = pickSideProjectCardId(playerId, players)
+    const cardId = pickSideProjectCardId(playerId, players, claimedByPlayer)
     if (!cardId) return
     setClaimedByPlayer(prev => ({
       ...prev,
