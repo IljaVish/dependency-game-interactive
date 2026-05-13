@@ -63,18 +63,18 @@ function SetupScreen({ onStart }) {
   )
 }
 
-function Game({ playerCount }) {
+function Game({ playerCount, onNewGame }) {
   const [state, dispatch] = useReducer(
     gameReducer,
     { playerDefs: ALL_PLAYER_DEFS.slice(0, playerCount), totalRounds: 12 },
     createInitialState,
   )
-  return <GameBoard state={state} dispatch={dispatch} />
+  return <GameBoard state={state} dispatch={dispatch} onNewGame={onNewGame} />
 }
 
 export default function App() {
   const [playerCount, setPlayerCount] = useState(null)
 
   if (!playerCount) return <SetupScreen onStart={setPlayerCount} />
-  return <Game playerCount={playerCount} />
+  return <Game playerCount={playerCount} onNewGame={() => setPlayerCount(null)} />
 }

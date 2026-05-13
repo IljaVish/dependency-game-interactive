@@ -771,7 +771,8 @@ export function gameReducer(state, action) {
 
     case 'ADVANCE_TO_SCORE': {
       const scored = scoreRound(state)
-      return { ...scored, phase: 'score' }
+      const gameOver = state.round >= state.totalRounds
+      return { ...scored, phase: 'score', gameOver }
     }
 
     case 'ADVANCE_TO_NEXT_ROUND':

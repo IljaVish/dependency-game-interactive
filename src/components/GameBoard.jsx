@@ -53,7 +53,9 @@ function pickSideProjectCardId(playerId, players) {
   )
 }
 
-export default function GameBoard({ state, dispatch }) {
+const BASE_SCORE = 70 // simulation top-strategy average — used as par for the game-end summary
+
+export default function GameBoard({ state, dispatch, onNewGame }) {
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
 
   // ── UI-only state ────────────────────────────────────────────────────────────
@@ -292,9 +294,8 @@ export default function GameBoard({ state, dispatch }) {
                 className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
             </div>
           )}
-          {gameOver
-            ? <span className="text-green-400 font-bold">Game over — final score: {state.teamScore}</span>
-            : advancePending
+          {!gameOver && (
+            advancePending
               ? <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
                   <button onClick={handleAdvancePhase}
@@ -310,7 +311,7 @@ export default function GameBoard({ state, dispatch }) {
                 >
                   {NEXT_LABEL[phase]}
                 </button>
-          }
+          )}
         </div>
       </div>
 
@@ -457,6 +458,63 @@ export default function GameBoard({ state, dispatch }) {
           />
         ))}
       </section>
+
+      {/* ── Game-over modal ── */}
+      {gameOver && (() => {
+        const allEntries = state.roundScores.flatMap(rs => rs.entries)
+        const projectsDelivered = allEntries.filter(e => e.description.startsWith('Project delivered:')).length
+        const trainingsUnlocked = allEntries.filter(e => e.description.startsWith('Training:')).length
+        const totalPenalties    = allEntries.filter(e => e.points < 0).reduce((s, e) => s + e.points, 0)
+        const sideProjectPts    = allEntries.filter(e => e.description === 'Side project').reduce((s, e) => s + e.points, 0)
+        const delta = state.teamScore - BASE_SCORE
+        return (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md flex flex-col gap-6 shadow-2xl">
+              <div className="flex flex-col gap-1">
+                <h2 className="text-2xl font-bold text-white">Game Over</h2>
+                <p className="text-gray-400 text-sm">{totalRounds} rounds · {players.length} players</p>
+              </div>
+
+              {/* Final score + par comparison */}
+              <div className="flex items-end gap-4">
+                <div>
+                  <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Team score</p>
+                  <p className="text-5xl font-bold text-white">{state.teamScore}</p>
+                </div>
+                <div className="mb-1.5">
+                  <span className={`text-xl font-semibold ${delta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {delta >= 0 ? '+' : ''}{delta} vs par ({BASE_SCORE})
+                  </span>
+                </div>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Projects delivered', value: projectsDelivered },
+                  { label: 'Trainings unlocked', value: trainingsUnlocked },
+                  { label: 'Side project pts',   value: sideProjectPts },
+                  { label: 'Penalties',           value: totalPenalties, negative: true },
+                ].map(({ label, value, negative }) => (
+                  <div key={label} className="bg-gray-700 rounded-xl p-3">
+                    <p className="text-xs text-gray-400 mb-0.5">{label}</p>
+                    <p className={`text-xl font-bold ${negative && value < 0 ? 'text-red-400' : 'text-white'}`}>
+                      {negative && value < 0 ? value : value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={onNewGame}
+                className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 py-3 rounded-xl font-semibold text-lg transition-colors cursor-pointer"
+              >
+                New Game
+              </button>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
