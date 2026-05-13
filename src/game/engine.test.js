@@ -21,7 +21,7 @@ function makePlayer(id, colour, overrides = {}) {
     completedTrainings: [],
     reworkUsed: false,
     setDieUsed: false,
-    needsDraw: false,
+    needsDraw: 0,
     ...overrides,
   }
 }
@@ -319,7 +319,7 @@ describe('ADVANCE_TO_SCORE — project delivery', () => {
     const green = next.players.find(p => p.id === 'p1')
     expect(green.totalScore).toBe(8)
     expect(green.ownedCards).toHaveLength(0)
-    expect(green.needsDraw).toBe(true)
+    expect(green.needsDraw).toBe(1)
     expect(next.teamScore).toBe(8)
     expect(green.dice.find(d => d.id === 'green-0').allocatedTo).toBeNull()
     expect(next.players.find(p => p.id === 'p2').dice[0].allocatedTo).toBeNull()

@@ -52,8 +52,8 @@ export function findCard(id) {
 //     completedTrainings: string[]    (training type keys: 'rework', 'support', 'set'; active from next round)
 //     reworkUsed: boolean    (reroll-2 ability, resets each round)
 //     setDieUsed: boolean    (set-1-die ability, resets each round)
-//     needsDraw: boolean     (true = player draws one card this Set phase; starts true for all players in round 1,
-  //                          set true only when a project is delivered, never for training/side-project completions)
+//     needsDraw: number      (cards still to draw this Set phase; starts at 1 for all players in round 1,
+  //                          increments by 1 each time a project is delivered, never for training/side-project completions)
 //   }]
 //
 //   deck: string[]           (cardIds, top of deck = index 0)
@@ -113,7 +113,7 @@ export function createInitialState({ playerDefs, totalRounds = 12 }) {
     completedTrainings: [],
     reworkUsed: false,
     setDieUsed: false,
-    needsDraw: true,
+    needsDraw: 1,
   }))
 
   return autoDraw({
@@ -431,7 +431,7 @@ function scoreRound(state) {
       players = players.map(p => {
         if (p.id !== ownerPlayer.id && !diceEntries.some(e => e.player.id === p.id)) return p
         let updated = p.id === ownerPlayer.id
-          ? { ...p, totalScore: p.totalScore + card.points, ownedCards: p.ownedCards.filter(oc => oc.cardId !== cardId), needsDraw: true }
+          ? { ...p, totalScore: p.totalScore + card.points, ownedCards: p.ownedCards.filter(oc => oc.cardId !== cardId), needsDraw: p.needsDraw + 1 }
           : { ...p }
         return updateDiceWhere(updated, d => d.allocatedTo === cardId,
           d => ({ ...d, allocatedTo: null, locked: false }))
@@ -532,16 +532,16 @@ export function gameReducer(state, action) {
       const pendingCardData = findCard(player.pendingCard.cardId)
       if (pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour) return state
 
-      const next = updatePlayer(
+      const next = autoDraw(updatePlayer(
         state,
         action.playerId,
         p => ({
           ...p,
           ownedCards: [...p.ownedCards, p.pendingCard],
           pendingCard: null,
-          needsDraw: false,
+          needsDraw: Math.max(0, p.needsDraw - 1),
         })
-      )
+      ))
       return next.players.every(p => p.pendingCard === null) ? { ...next, phase: 'plan' } : next
     }
 
@@ -553,14 +553,14 @@ export function gameReducer(state, action) {
       const player = state.players.find(p => p.id === action.playerId)
       if (!player?.pendingCard) return state
 
-      const next = updatePlayer(
+      const next = autoDraw(updatePlayer(
         {
           ...state,
           marketplace: [...state.marketplace, player.pendingCard],
         },
         action.playerId,
-        p => ({ ...p, pendingCard: null, needsDraw: false })
-      )
+        p => ({ ...p, pendingCard: null, needsDraw: Math.max(0, p.needsDraw - 1) })
+      ))
       return next.players.every(p => p.pendingCard === null) ? { ...next, phase: 'plan' } : next
     }
 

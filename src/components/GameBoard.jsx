@@ -70,6 +70,7 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
   const [rollAllPending,   setRollAllPending]  = useState(false)
   const [advancePending,   setAdvancePending]  = useState(false)
   const [workModes,        setWorkModes]       = useState({})
+  const [activePlayerId,   setActivePlayerId]  = useState(() => players[0]?.id ?? null)
 
   function handleAdvancePhase() {
     if (phase === 'plan' && planToWorkWarnings.length > 0 && !advancePending) {
@@ -92,6 +93,7 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
 
   function handleDieClick(playerId, die) {
     if (phase !== 'plan' || die.locked) return
+    if (playerId !== activePlayerId) return
     setAllDiceSelectedFor(null)
     if (die.allocatedTo !== null) {
       dispatch({ type: 'DEALLOCATE_DIE', playerId, dieId: die.id })
@@ -101,6 +103,7 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
   }
 
   function handleSelectAll(playerId) {
+    if (playerId !== activePlayerId) return
     setSelectedDie(null)
     setAllDiceSelectedFor(prev => prev === playerId ? null : playerId)
   }
@@ -166,7 +169,7 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
   function handleWorkDieClick(die) {
     const ownerColour = die.id.split('-')[0]
     const owner = players.find(p => p.colour === ownerColour)
-    if (!owner) return
+    if (!owner || owner.id !== activePlayerId) return
     const canRework = owner.completedTrainings.includes('rework') && !owner.reworkUsed
       && owner.dice.every(d => d.value !== null)
     const canSetDie = owner.completedTrainings.includes('set') && !owner.setDieUsed
@@ -429,14 +432,37 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
 
       {/* ── Players ── */}
       <section className="bg-gray-800 rounded-xl p-4 flex flex-col gap-2">
-        <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Players</h2>
-        {players.map(player => (
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400">Players</h2>
+          {/* Player switcher — tap your colour to become the active player */}
+          <div className="flex gap-1.5">
+            {players.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setActivePlayerId(p.id)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer"
+                style={{
+                  backgroundColor: activePlayerId === p.id ? COLOURS[p.colour].hex : '#374151',
+                  color: activePlayerId === p.id ? '#fff' : COLOURS[p.colour].hex,
+                  outline: activePlayerId === p.id ? `2px solid ${COLOURS[p.colour].hex}` : 'none',
+                  outlineOffset: '2px',
+                }}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Active player's row is always first */}
+        {[...players].sort((a, b) => a.id === activePlayerId ? -1 : b.id === activePlayerId ? 1 : 0)
+          .map(player => (
           <PlayerRow
             key={player.id}
             player={player}
             players={players}
             phase={phase}
             selectedDie={selectedDie}
+            isActivePlayer={player.id === activePlayerId}
             hasDieSelected={anyDiceSelected}
             allDiceSelected={allDiceSelectedFor === player.id}
             onSelectAll={() => handleSelectAll(player.id)}

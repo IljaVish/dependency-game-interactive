@@ -27,7 +27,7 @@ function getLaneSideProject(player, playerClaimed) {
 }
 
 export default function PlayerRow({
-  player, players, phase, selectedDie, hasDieSelected, allDiceSelected, onSelectAll, playerClaimed,
+  player, players, phase, selectedDie, isActivePlayer, hasDieSelected, allDiceSelected, onSelectAll, playerClaimed,
   onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll, onRollDice,
   workMode = WORK_INIT, workModes = {},
   onWorkDieClick, onActivateRework, onActivateSetDie, onConfirmRework, onConfirmSetDie, onCancelWorkMode,
@@ -89,9 +89,9 @@ export default function PlayerRow({
             const isReworkSelected  = reworkDieIds.includes(die.id)
             const isSetSelected     = settingDieId === die.id
             const isAllSelected     = allDiceSelected && !die.locked && die.allocatedTo === null
-            const isPlanClickable   = isPlan && !die.locked
-            const isReworkClickable = isWork && (reworkActive || canRework) && !die.locked
-            const isSetClickable    = isWork && (setDieActive || canSetDie) && settingDieId === null && !die.locked
+            const isPlanClickable   = isPlan && isActivePlayer && !die.locked
+            const isReworkClickable = isWork && isActivePlayer && (reworkActive || canRework) && !die.locked
+            const isSetClickable    = isWork && isActivePlayer && (setDieActive || canSetDie) && settingDieId === null && !die.locked
             const isClickable       = isPlanClickable || isReworkClickable || isSetClickable
 
             const ringClass = (selectedDie?.dieId === die.id || isReworkSelected || isAllSelected)
@@ -116,7 +116,7 @@ export default function PlayerRow({
         </div>
 
         {/* Plan phase: select all free dice */}
-        {isPlan && player.dice.some(d => !d.locked && d.allocatedTo === null) && (
+        {isPlan && isActivePlayer && player.dice.some(d => !d.locked && d.allocatedTo === null) && (
           <button
             onClick={onSelectAll}
             className={`text-xs border rounded px-2 py-0.5 cursor-pointer ${
@@ -140,7 +140,7 @@ export default function PlayerRow({
           )}
 
           {/* Plan phase: reallocate all */}
-          {isPlan && player.dice.some(d => !d.locked && d.allocatedTo) && (
+          {isPlan && isActivePlayer && player.dice.some(d => !d.locked && d.allocatedTo) && (
             <button onClick={onDeallocateAll}
               className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
               Reallocate all
@@ -148,14 +148,14 @@ export default function PlayerRow({
           )}
 
           {/* Work phase: roll this player's dice */}
-          {canRoll && !showRollWarning && (
+          {canRoll && isActivePlayer && !showRollWarning && (
             <button
               onClick={() => rollWarnings.length > 0 ? setShowRollWarning(true) : onRollDice()}
               className="text-xs bg-orange-700 hover:bg-orange-600 text-white rounded px-2 py-0.5 cursor-pointer font-medium">
               Roll
             </button>
           )}
-          {showRollWarning && (
+          {showRollWarning && isActivePlayer && (
             <>
               <span className="text-xs text-yellow-300">{rollWarnings.join(' ')}</span>
               <button onClick={() => { onRollDice(); setShowRollWarning(false) }}
@@ -168,7 +168,7 @@ export default function PlayerRow({
           )}
 
           {/* Work phase: rework (reroll 2 dice) */}
-          {canRework && !reworkActive && (
+          {canRework && isActivePlayer && !reworkActive && (
             <button
               onClick={onActivateRework}
               className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
@@ -190,7 +190,7 @@ export default function PlayerRow({
           )}
 
           {/* Work phase: set die to chosen value */}
-          {canSetDie && !setDieActive && (
+          {canSetDie && isActivePlayer && !setDieActive && (
             <button
               onClick={onActivateSetDie}
               className="text-xs text-gray-400 hover:text-white border border-gray-500 hover:border-gray-300 rounded px-2 py-0.5 cursor-pointer">
@@ -224,8 +224,8 @@ export default function PlayerRow({
         </div>
       )}
 
-      {/* ── Set phase: keep / put to market ── */}
-      {hasSetAction && (
+      {/* ── Set phase: keep / put to market — only shown to the active player (private info) ── */}
+      {hasSetAction && isActivePlayer && (
         <div className="flex items-start gap-4 pt-1 border-t border-gray-600">
           {player.pendingCard && (
             <div className="flex items-start gap-4">
@@ -275,7 +275,7 @@ export default function PlayerRow({
                   allocatedOwnerDice={ownerDice}
                   allocatedDepDice={depDice}
                   ownerColour={player.colour}
-                  onOwnerStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
+                  onOwnerStagingDieClick={isWork && isActivePlayer && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
                   onDepStagingDieClick={isWork && onWorkDieClick ? onWorkDieClick : undefined}
                   reworkDieIds={reworkDieIds}
                   settingDieId={settingDieId}
@@ -296,7 +296,7 @@ export default function PlayerRow({
                 onClick={isPlan && hasDieSelected ? () => onCardClick(cardId) : undefined}
                 allocatedDice={dice}
                 diceColour={player.colour}
-                onStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
+                onStagingDieClick={isWork && isActivePlayer && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
                 reworkDieIds={reworkDieIds}
                 settingDieId={settingDieId}
               />
@@ -311,7 +311,7 @@ export default function PlayerRow({
                 onClick={isPlan && hasDieSelected ? () => onCardClick(laneSideProject.cardId) : undefined}
                 allocatedDice={laneSideProject.dice}
                 diceColour={player.colour}
-                onStagingDieClick={isWork && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
+                onStagingDieClick={isWork && isActivePlayer && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
                 reworkDieIds={reworkDieIds}
                 settingDieId={settingDieId}
               />
