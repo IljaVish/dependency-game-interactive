@@ -33,7 +33,7 @@ export default function SideProjectCard({
             return (
               <div
                 key={die.id}
-                onClick={onStagingDieClick ? () => onStagingDieClick(die) : undefined}
+                onClick={onStagingDieClick ? (e) => onStagingDieClick(die, e) : undefined}
                 className={onStagingDieClick ? 'cursor-pointer' : undefined}
               >
                 <DieFace value={die.value} className={`w-6 h-6${ringClass}`} bgColor={colourHex} pipFill={pipFill} />

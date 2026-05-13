@@ -27,7 +27,7 @@ const NEXT_LABEL = {
 }
 
 const TRAINING_TYPES = ['rework', 'support', 'set']
-const WORK_INIT = { reworkActive: false, reworkDieIds: [], setDieActive: false, settingDieId: null }
+const WORK_INIT = { reworkActive: false, reworkDieIds: [], setDieActive: false, settingDieId: null, pickerPos: null }
 const MARKETPLACE_SLOTS = 3
 
 function fmtDesc(desc) {
@@ -169,7 +169,7 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
 
   function getWorkMode(playerId) { return workModes[playerId] ?? WORK_INIT }
 
-  function handleWorkDieClick(die) {
+  function handleWorkDieClick(die, e) {
     const ownerColour = die.id.split('-')[0]
     const owner = players.find(p => p.colour === ownerColour)
     if (!owner || owner.id !== activePlayerId) return
@@ -177,6 +177,8 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
       && owner.dice.every(d => d.value !== null)
     const canSetDie = owner.completedTrainings.includes('set') && !owner.setDieUsed
       && owner.dice.some(d => d.value === null)
+    const rect = e?.currentTarget?.getBoundingClientRect()
+    const pickerPos = rect ? { x: rect.right + 6, y: rect.top + rect.height / 2 } : null
     setWorkModes(prev => {
       const m = prev[owner.id] ?? WORK_INIT
       if (m.reworkActive && !die.locked) {
@@ -186,10 +188,10 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
         return { ...prev, [owner.id]: { ...m, reworkDieIds: next } }
       }
       if (m.setDieActive && m.settingDieId === null && !die.locked)
-        return { ...prev, [owner.id]: { ...m, settingDieId: die.id } }
+        return { ...prev, [owner.id]: { ...m, settingDieId: die.id, pickerPos } }
       if (!m.reworkActive && !m.setDieActive && !die.locked) {
         if (canRework) return { ...prev, [owner.id]: { ...WORK_INIT, reworkActive: true, reworkDieIds: [die.id] } }
-        if (canSetDie) return { ...prev, [owner.id]: { ...WORK_INIT, setDieActive: true, settingDieId: die.id } }
+        if (canSetDie) return { ...prev, [owner.id]: { ...WORK_INIT, setDieActive: true, settingDieId: die.id, pickerPos } }
       }
       return prev
     })
@@ -541,6 +543,35 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
                 New Game
               </button>
             </div>
+          </div>
+        )
+      })()}
+
+      {/* Fixed Set Die value picker — appears next to whichever die was selected, regardless of which row it's in */}
+      {(() => {
+        const entry = Object.entries(workModes).find(([, m]) => m.settingDieId && m.pickerPos)
+        if (!entry) return null
+        const [pid, mode] = entry
+        const { x, y } = mode.pickerPos
+        return (
+          <div
+            className="fixed z-50 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-2 flex items-center gap-1.5"
+            style={{
+              left: x,
+              top: y,
+              transform: 'translateY(-50%)',
+            }}
+          >
+            {[1, 2, 3, 4, 5, 6].map(v => (
+              <button key={v} onClick={() => handleConfirmSetDie(pid, v)}
+                className="w-8 h-8 rounded-lg bg-gray-600 hover:bg-green-700 text-white text-sm font-bold cursor-pointer">
+                {v}
+              </button>
+            ))}
+            <button onClick={() => handleCancelWorkMode(pid)}
+              className="text-xs text-gray-400 hover:text-gray-200 cursor-pointer ml-1">
+              ✕
+            </button>
           </div>
         )
       })()}

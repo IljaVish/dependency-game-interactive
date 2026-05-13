@@ -64,11 +64,11 @@ export default function PlayerRow({
 
   const rollWarnings = canRoll && canSetDie ? ["You haven't used Set Die yet."] : []
 
-  function handleDieClick(die) {
+  function handleDieClick(die, e) {
     if (isPlan && !die.locked) {
       onDieClick(die)
     } else if (isWork) {
-      onWorkDieClick?.(die)
+      onWorkDieClick?.(die, e)
     }
   }
 
@@ -101,7 +101,7 @@ export default function PlayerRow({
             return (
               <div
                 key={die.id}
-                onClick={isClickable ? () => handleDieClick(die) : undefined}
+                onClick={isClickable ? (e) => handleDieClick(die, e) : undefined}
                 className={isClickable ? 'cursor-pointer' : undefined}
               >
                 <DieFace
@@ -206,23 +206,6 @@ export default function PlayerRow({
           )}
         </div>
       </div>
-
-      {/* Work phase: value picker shown after a die is selected for Set */}
-      {setDieActive && settingDieId && (
-        <div className="flex items-center gap-2 pt-1 border-t border-gray-600">
-          <span className="text-xs text-gray-400">Set to:</span>
-          {[1, 2, 3, 4, 5, 6].map(v => (
-            <button key={v} onClick={() => onConfirmSetDie(v)}
-              className="w-7 h-7 rounded bg-gray-600 hover:bg-green-700 text-sm font-bold cursor-pointer">
-              {v}
-            </button>
-          ))}
-          <button onClick={onCancelWorkMode}
-            className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer ml-1">
-            Cancel
-          </button>
-        </div>
-      )}
 
       {/* ── Set phase: keep / put to market — only shown to the active player (private info) ── */}
       {hasSetAction && isActivePlayer && (

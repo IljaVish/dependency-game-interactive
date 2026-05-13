@@ -90,7 +90,7 @@ export default function ProjectCard({
             return (
               <div
                 key={die.id}
-                onClick={onOwnerStagingDieClick ? () => onOwnerStagingDieClick(die) : undefined}
+                onClick={onOwnerStagingDieClick ? (e) => onOwnerStagingDieClick(die, e) : undefined}
                 className={onOwnerStagingDieClick ? 'cursor-pointer' : undefined}
               >
                 <DieFace value={die.value} className={`w-6 h-6${ringClass}`} bgColor={ownerHex} pipFill={ownerPipFill} />
@@ -106,7 +106,7 @@ export default function ProjectCard({
             return (
               <div
                 key={die.id}
-                onClick={onDepStagingDieClick ? () => onDepStagingDieClick(die) : undefined}
+                onClick={onDepStagingDieClick ? (e) => onDepStagingDieClick(die, e) : undefined}
                 className={onDepStagingDieClick ? 'cursor-pointer' : undefined}
               >
                 <DieFace value={die.value} className={`w-6 h-6${ringClass}`}
