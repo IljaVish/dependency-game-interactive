@@ -1,0 +1,5 @@
+{
+  "name": "dependency-game",
+  "main": "party/game.js",
+  "compatibilityDate": "2024-01-01"
+}
