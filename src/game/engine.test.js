@@ -33,6 +33,7 @@ function makeState(overrides = {}) {
     totalRounds: 12,
     gameOver: false,
     teamScore: 0,
+    planReadyPlayers: [],
     players: [],
     deck: [],
     marketplace: [],
@@ -885,5 +886,72 @@ describe('ADVANCE_TO_NEXT_ROUND', () => {
     const state = makeState({ phase: 'score', round: 12, totalRounds: 12, players: [makePlayer('p1', 'green')] })
     const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
     expect(next.gameOver).toBe(true)
+  })
+})
+
+describe('PLAYER_DONE_PLANNING', () => {
+  function makePlanState(playerCount = 2) {
+    const players = Array.from({ length: playerCount }, (_, i) =>
+      makePlayer(`p${i + 1}`, ['green', 'blue', 'red', 'yellow', 'purple', 'orange'][i])
+    )
+    return makeState({ phase: 'plan', players, planReadyPlayers: [] })
+  }
+
+  it('adds playerId to planReadyPlayers', () => {
+    const state = makePlanState(2)
+    const next = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
+    expect(next.planReadyPlayers).toContain('p1')
+    expect(next.phase).toBe('plan')
+  })
+
+  it('ignores duplicate calls from the same player', () => {
+    const state = makePlanState(2)
+    const once = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
+    const twice = gameReducer(once, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
+    expect(twice.planReadyPlayers.filter(id => id === 'p1')).toHaveLength(1)
+  })
+
+  it('advances to work phase when all players are ready', () => {
+    const state = makePlanState(2)
+    const after1 = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
+    const after2 = gameReducer(after1, { type: 'PLAYER_DONE_PLANNING', playerId: 'p2' })
+    expect(after2.phase).toBe('work')
+    expect(after2.planReadyPlayers).toEqual([])
+  })
+
+  it('does nothing outside the plan phase', () => {
+    const state = makeState({ phase: 'work', planReadyPlayers: [] })
+    const next = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
+    expect(next.planReadyPlayers).toEqual([])
+  })
+})
+
+describe('planReadyPlayers resets on new round', () => {
+  it('is empty after ADVANCE_TO_NEXT_ROUND', () => {
+    const state = makeState({
+      phase: 'score',
+      round: 1,
+      totalRounds: 12,
+      planReadyPlayers: ['p1'],
+      players: [makePlayer('p1', 'green')],
+      roundScores: [{ round: 1, entries: [] }],
+    })
+    const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
+    expect(next.planReadyPlayers).toEqual([])
+  })
+})
+
+describe('phase guards on advance actions', () => {
+  it('ADVANCE_TO_NEXT_ROUND is a no-op outside score phase', () => {
+    const state = makeState({ phase: 'plan', round: 3, planReadyPlayers: [] })
+    const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
+    expect(next.round).toBe(3)
+    expect(next.phase).toBe('plan')
+  })
+
+  it('ADVANCE_TO_SCORE is a no-op outside work phase', () => {
+    const state = makeState({ phase: 'score', round: 1, planReadyPlayers: [] })
+    const next = gameReducer(state, { type: 'ADVANCE_TO_SCORE' })
+    expect(next.phase).toBe('score')
   })
 })
