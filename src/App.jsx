@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { COLOUR_ORDER, COLOURS } from './data/colours.js'
 import { LocalSession } from './session/LocalSession.jsx'
 import { NetworkSession } from './session/NetworkSession.jsx'
@@ -240,10 +240,25 @@ function SetupScreen({ onStartLocal, onStartNetwork }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
+const SESSION_KEY = 'depgame-network-session'
+
 export default function App() {
-  const [session, setSession] = useState(null)
+  const [session, setSession] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem(SESSION_KEY)
+      return saved ? JSON.parse(saved) : null
+    } catch { return null }
+  })
   // session: null | { type: 'local', playerCount }
   //                | { type: 'network', roomCode, playerName, isFacilitator }
+
+  useEffect(() => {
+    if (session?.type === 'network') {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    } else {
+      sessionStorage.removeItem(SESSION_KEY)
+    }
+  }, [session])
 
   if (!session) {
     return (

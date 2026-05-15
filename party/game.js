@@ -23,10 +23,15 @@ export default class GameServer {
       case 'join': {
         const { name, role } = msg
 
-        // Reconnect: same name + role already in lobby
+        // Reconnect: same name + role already in lobby AND player is not currently connected
         const existing = this.lobby.find(p => p.name === name && p.role === role)
         if (existing) {
+          if (existing.connected) {
+            sender.send(JSON.stringify({ type: 'error', message: `Name "${name}" is already taken` }))
+            return
+          }
           existing.connId = sender.id
+          existing.connected = true
           const playerIndex = this.lobby.filter(p => p.role === 'player').indexOf(existing)
           sender.send(JSON.stringify({
             type: 'joined',
@@ -48,7 +53,7 @@ export default class GameServer {
         }
 
         if (role === 'facilitator') {
-          this.lobby.push({ connId: sender.id, name, role: 'facilitator' })
+          this.lobby.push({ connId: sender.id, name, role: 'facilitator', connected: true })
           sender.send(JSON.stringify({ type: 'joined', playerIndex: -1, roomCode: this.party.id }))
         } else {
           const playerCount = this.lobby.filter(p => p.role === 'player').length
@@ -57,7 +62,7 @@ export default class GameServer {
             return
           }
           const colour = COLOUR_ORDER[playerCount]
-          this.lobby.push({ connId: sender.id, name, colour, role: 'player' })
+          this.lobby.push({ connId: sender.id, name, colour, role: 'player', connected: true })
           sender.send(JSON.stringify({
             type: 'joined',
             playerIndex: playerCount,
@@ -104,7 +109,8 @@ export default class GameServer {
   }
 
   onClose(conn) {
-    // Keep lobby entry for reconnect — player can rejoin with same name
+    const entry = this.lobby.find(p => p.connId === conn.id)
+    if (entry) entry.connected = false
     this.party.broadcast(JSON.stringify({ type: 'lobby', players: this.lobby }))
   }
 }
