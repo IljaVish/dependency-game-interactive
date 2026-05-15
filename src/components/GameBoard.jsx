@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useGameSession } from '../session/GameSessionContext.jsx'
 import ProjectCard from './ProjectCard.jsx'
 import TrainingCard from './TrainingCard.jsx'
 import SideProjectCard from './SideProjectCard.jsx'
@@ -58,7 +59,8 @@ function pickSideProjectCardId(playerId, players, claimedByPlayer) {
 
 const BASE_SCORE = 70 // simulation top-strategy average — used as par for the game-end summary
 
-export default function GameBoard({ state, dispatch, onNewGame }) {
+export default function GameBoard() {
+  const { state, dispatch, onNewGame } = useGameSession()
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
 
   // ── UI-only state ────────────────────────────────────────────────────────────
