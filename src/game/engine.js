@@ -579,7 +579,21 @@ export function gameReducer(state, action) {
           marketplace: state.marketplace.filter(e => e.cardId !== action.cardId),
         },
         action.playerId,
-        p => ({ ...p, ownedCards: [...p.ownedCards, entry] })
+        p => ({ ...p, ownedCards: [...p.ownedCards, { ...entry, takenRound: state.round }] })
+      )
+    }
+
+    case 'RETURN_TO_MARKETPLACE': {
+      // action: { playerId, cardId }
+      // Only allowed if card was taken this round (plan phase) and no dice are allocated to it.
+      const player = state.players.find(p => p.id === action.playerId)
+      const entry = player?.ownedCards.find(oc => oc.cardId === action.cardId)
+      if (!entry || entry.takenRound !== state.round) return state
+      if (state.players.some(p => p.dice.some(d => d.allocatedTo === action.cardId))) return state
+      return updatePlayer(
+        { ...state, marketplace: [...state.marketplace, { cardId: entry.cardId, drawnRound: entry.drawnRound }] },
+        action.playerId,
+        p => ({ ...p, ownedCards: p.ownedCards.filter(oc => oc.cardId !== action.cardId) })
       )
     }
 
@@ -603,7 +617,21 @@ export function gameReducer(state, action) {
       if (takenByOther) return state
       return updatePlayer(state, action.playerId, p => ({
         ...p,
-        activeTrainingCards: [...p.activeTrainingCards, { cardId: action.cardId }],
+        activeTrainingCards: [...p.activeTrainingCards, { cardId: action.cardId, claimedRound: state.round }],
+      }))
+    }
+
+    case 'UNCLAIM_TRAINING_CARD': {
+      // action: { playerId, cardId }
+      // Only allowed if claimed this round and no dice are allocated to it.
+      const player = state.players.find(p => p.id === action.playerId)
+      if (!player) return state
+      const tc = player.activeTrainingCards.find(t => t.cardId === action.cardId)
+      if (!tc || tc.claimedRound !== state.round) return state
+      if (player.dice.some(d => d.allocatedTo === action.cardId)) return state
+      return updatePlayer(state, action.playerId, p => ({
+        ...p,
+        activeTrainingCards: p.activeTrainingCards.filter(t => t.cardId !== action.cardId),
       }))
     }
 

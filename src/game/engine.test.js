@@ -609,7 +609,7 @@ describe('CLAIM_TRAINING_CARD', () => {
       players: [makePlayer('p1', 'green')],
     })
     const next = gameReducer(state, { type: 'CLAIM_TRAINING_CARD', playerId: 'p1', cardId: 'training-rework-1' })
-    expect(next.players[0].activeTrainingCards).toEqual([{ cardId: 'training-rework-1' }])
+    expect(next.players[0].activeTrainingCards).toEqual([{ cardId: 'training-rework-1', claimedRound: 1 }])
   })
 
   it('is rejected when the player has already completed that training type', () => {
@@ -654,7 +654,7 @@ describe('CLAIM_TRAINING_CARD', () => {
       ],
     })
     const next = gameReducer(state, { type: 'CLAIM_TRAINING_CARD', playerId: 'p1', cardId: 'training-rework-2' })
-    expect(next.players[0].activeTrainingCards).toEqual([{ cardId: 'training-rework-2' }])
+    expect(next.players[0].activeTrainingCards).toEqual([{ cardId: 'training-rework-2', claimedRound: 1 }])
   })
 })
 

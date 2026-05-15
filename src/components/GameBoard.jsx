@@ -64,9 +64,6 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
   // ── UI-only state ────────────────────────────────────────────────────────────
   const [selectedDie,           setSelectedDie]           = useState(null)
   const [allDiceSelectedFor,    setAllDiceSelectedFor]    = useState(null) // playerId | null
-  const [claimingCardId,        setClaimingCardId]        = useState(null)  // marketplace
-  const [claimingTrainingKey,   setClaimingTrainingKey]   = useState(null) // training picker
-  const [claimingSideProject,   setClaimingSideProject]   = useState(false) // side-project picker
   // Tracks which side-project copy each player has claimed this round (UI-only, resets each round).
   // Shape: { [playerId]: { sideProjectId: string|null } }
   const [claimedByPlayer, setClaimedByPlayer] = useState({})
@@ -86,9 +83,6 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
     setRollAllPending(false)
     setAdvancePending(false)
     setWorkModes({})
-    setClaimingCardId(null)
-    setClaimingTrainingKey(null)
-    setClaimingSideProject(false)
     if (phase === 'score') setClaimedByPlayer({})
   }
 
@@ -141,28 +135,26 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
     )
   }
 
-  function handleClaimTraining(key, playerId) {
-    const cardId = pickTrainingCardId(key, playerId, players)
+  function handleClaimTraining(key) {
+    const cardId = pickTrainingCardId(key, activePlayerId, players)
     if (!cardId) return
-    dispatch({ type: 'CLAIM_TRAINING_CARD', playerId, cardId })
-    setClaimingTrainingKey(null)
+    dispatch({ type: 'CLAIM_TRAINING_CARD', playerId: activePlayerId, cardId })
   }
 
-  function handleClaimSideProject(playerId) {
-    const cardId = pickSideProjectCardId(playerId, players, claimedByPlayer)
+  function handleClaimSideProject() {
+    if (hasClaimedSideProject(activePlayerId)) return
+    const cardId = pickSideProjectCardId(activePlayerId, players, claimedByPlayer)
     if (!cardId) return
     setClaimedByPlayer(prev => ({
       ...prev,
-      [playerId]: { ...prev[playerId], sideProjectId: cardId },
+      [activePlayerId]: { ...prev[activePlayerId], sideProjectId: cardId },
     }))
-    setClaimingSideProject(false)
   }
 
   // ── Set phase — marketplace claiming ────────────────────────────────────────
 
-  function handleMarketplaceClaim(playerId, cardId) {
-    dispatch({ type: 'TAKE_FROM_MARKETPLACE', playerId, cardId })
-    setClaimingCardId(null)
+  function handleMarketplaceClaim(cardId) {
+    dispatch({ type: 'TAKE_FROM_MARKETPLACE', playerId: activePlayerId, cardId })
   }
 
   // ── Work phase — mode management (lifted here so dep-die clicks across rows work) ──
@@ -217,6 +209,20 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
     setWorkModes(prev => { const n = { ...prev }; delete n[playerId]; return n })
   }
 
+  function handleReturnToMarketplace(playerId, cardId) {
+    dispatch({ type: 'RETURN_TO_MARKETPLACE', playerId, cardId })
+  }
+  function handleUnclaimTraining(playerId, cardId) {
+    dispatch({ type: 'UNCLAIM_TRAINING_CARD', playerId, cardId })
+  }
+  function handleReturnSideProject(playerId) {
+    setClaimedByPlayer(prev => {
+      const next = { ...prev }
+      if (next[playerId]) next[playerId] = { ...next[playerId], sideProjectId: null }
+      return next
+    })
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
 
   const isPlan         = phase === 'plan'
@@ -242,27 +248,6 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
       return [key, 3 - inUse - completed]
     })
   )
-
-  function playerPicker(onSelect, onCancel, excludeIds = []) {
-    return (
-      <div className="flex flex-col gap-1">
-        <span className="text-xs text-gray-400 mb-0.5">Who works on this?</span>
-        {players.filter(p => !excludeIds.includes(p.id)).map(p => (
-          <button
-            key={p.id}
-            onClick={() => onSelect(p.id)}
-            className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-left cursor-pointer font-medium"
-            style={{ color: COLOURS[p.colour].hex }}
-          >
-            {p.name}
-          </button>
-        ))}
-        <button onClick={onCancel} className="text-xs text-gray-500 hover:text-gray-300 text-left mt-0.5 cursor-pointer">
-          Cancel
-        </button>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col gap-4">
@@ -371,21 +356,13 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
         <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Marketplace</h2>
         <div className="flex gap-4 flex-wrap items-start">
           {marketplace.map(entry => {
-            const card      = findCard(entry.cardId)
-            const isClaiming = claimingCardId === entry.cardId
+            const card = findCard(entry.cardId)
             return (
-              <div key={entry.cardId} className="flex flex-col gap-2">
+              <div key={entry.cardId}>
                 <ProjectCard
                   card={card}
-                  onClick={isPlan ? () => setClaimingCardId(isClaiming ? null : entry.cardId) : undefined}
+                  onClick={isPlan ? () => handleMarketplaceClaim(entry.cardId) : undefined}
                 />
-                {isClaiming && playerPicker(
-                  pid => handleMarketplaceClaim(pid, entry.cardId),
-                  () => setClaimingCardId(null),
-                  card.type === 'project'
-                    ? players.filter(p => p.colour === card.depColour).map(p => p.id)
-                    : [],
-                )}
               </div>
             )
           })}
@@ -402,18 +379,14 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
             <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Training</h2>
             <div className="flex gap-4 flex-wrap items-start">
               {TRAINING_TYPES.map(key => (
-                <div key={key} className="flex flex-col gap-2">
+                <div key={key}>
                   <TrainingCard
                     trainingKey={key}
                     copies={trainingAvailable[key]}
-                    onClick={isPlan && trainingAvailable[key] > 0
-                      ? () => setClaimingTrainingKey(claimingTrainingKey === key ? null : key)
+                    onClick={isPlan && trainingAvailable[key] > 0 && !hasClaimedTraining(activePlayerId, key)
+                      ? () => handleClaimTraining(key)
                       : undefined}
                   />
-                  {claimingTrainingKey === key && playerPicker(
-                    pid => hasClaimedTraining(pid, key) ? setClaimingTrainingKey(null) : handleClaimTraining(key, pid),
-                    () => setClaimingTrainingKey(null),
-                  )}
                 </div>
               ))}
             </div>
@@ -421,14 +394,10 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
           <div className="border-l border-gray-700 pl-8 flex flex-col">
             <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Side Projects</h2>
             <div className="flex-1 flex">
-              <div className="flex flex-col gap-2">
+              <div>
                 <SideProjectCard
-                  onClick={isPlan ? () => setClaimingSideProject(!claimingSideProject) : undefined}
+                  onClick={isPlan && !hasClaimedSideProject(activePlayerId) ? () => handleClaimSideProject() : undefined}
                 />
-                {claimingSideProject && playerPicker(
-                  pid => hasClaimedSideProject(pid) ? setClaimingSideProject(false) : handleClaimSideProject(pid),
-                  () => setClaimingSideProject(false),
-                )}
               </div>
             </div>
           </div>
@@ -486,6 +455,10 @@ export default function GameBoard({ state, dispatch, onNewGame }) {
             onConfirmRework={() => handleConfirmRework(player.id)}
             onConfirmSetDie={(value) => handleConfirmSetDie(player.id, value)}
             onCancelWorkMode={() => handleCancelWorkMode(player.id)}
+            round={round}
+            onReturnToMarketplace={(cardId) => handleReturnToMarketplace(player.id, cardId)}
+            onUnclaimTraining={(cardId) => handleUnclaimTraining(player.id, cardId)}
+            onReturnSideProject={() => handleReturnSideProject(player.id)}
           />
         ))}
       </section>

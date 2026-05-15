@@ -31,6 +31,7 @@ export default function PlayerRow({
   onDieClick, onCardClick, onKeep, onPutToMarket, onDeallocateAll, onRollDice,
   workMode = WORK_INIT, workModes = {},
   onWorkDieClick, onActivateRework, onActivateSetDie, onConfirmRework, onConfirmSetDie, onCancelWorkMode,
+  round, onReturnToMarketplace, onUnclaimTraining, onReturnSideProject,
 }) {
   const colour = COLOURS[player.colour]
 
@@ -249,6 +250,9 @@ export default function PlayerRow({
               .filter(id => depDice.some(d => d.id === id))
             const depSettingDieId = depDice.map(d => d.id)
               .find(id => allModes.some(m => m.settingDieId === id)) ?? null
+            const canReturn = isPlan && isActivePlayer
+              && ownedEntry.takenRound === round
+              && ownerDice.length === 0 && depDice.length === 0
             return (
               <div key={ownedEntry.cardId} className="flex flex-col gap-1.5">
                 <span className="text-xs text-gray-400 uppercase tracking-wide">Project</span>
@@ -265,26 +269,46 @@ export default function PlayerRow({
                   depReworkDieIds={depReworkDieIds}
                   depSettingDieId={depSettingDieId}
                 />
+                {canReturn && (
+                  <button
+                    onClick={() => onReturnToMarketplace(ownedEntry.cardId)}
+                    className="text-xs text-gray-500 hover:text-red-400 cursor-pointer text-center"
+                  >
+                    ↩ Return to market
+                  </button>
+                )}
               </div>
             )
           })}
 
           {/* Training cards in lane */}
-          {laneTrainings.map(({ key, cardId, dice }) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <span className="text-xs text-gray-400 uppercase tracking-wide">Training</span>
-              <TrainingCard
-                trainingKey={key}
-                copies={null}
-                onClick={isPlan && hasDieSelected ? () => onCardClick(cardId) : undefined}
-                allocatedDice={dice}
-                diceColour={player.colour}
-                onStagingDieClick={isWork && isActivePlayer && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
-                reworkDieIds={reworkDieIds}
-                settingDieId={settingDieId}
-              />
-            </div>
-          ))}
+          {laneTrainings.map(({ key, cardId, dice }) => {
+            const tc = player.activeTrainingCards.find(t => t.cardId === cardId)
+            const canReturn = isPlan && isActivePlayer && tc?.claimedRound === round && dice.length === 0
+            return (
+              <div key={key} className="flex flex-col gap-1.5">
+                <span className="text-xs text-gray-400 uppercase tracking-wide">Training</span>
+                <TrainingCard
+                  trainingKey={key}
+                  copies={null}
+                  onClick={isPlan && hasDieSelected ? () => onCardClick(cardId) : undefined}
+                  allocatedDice={dice}
+                  diceColour={player.colour}
+                  onStagingDieClick={isWork && isActivePlayer && (reworkActive || setDieActive || canRework || canSetDie) ? handleDieClick : undefined}
+                  reworkDieIds={reworkDieIds}
+                  settingDieId={settingDieId}
+                />
+                {canReturn && (
+                  <button
+                    onClick={() => onUnclaimTraining(cardId)}
+                    className="text-xs text-gray-500 hover:text-red-400 cursor-pointer text-center"
+                  >
+                    ↩ Return
+                  </button>
+                )}
+              </div>
+            )
+          })}
 
           {/* Side project in lane */}
           {laneSideProject && (
@@ -298,6 +322,14 @@ export default function PlayerRow({
                 reworkDieIds={reworkDieIds}
                 settingDieId={settingDieId}
               />
+              {isPlan && isActivePlayer && laneSideProject.dice.length === 0 && (
+                <button
+                  onClick={onReturnSideProject}
+                  className="text-xs text-gray-500 hover:text-red-400 cursor-pointer text-center"
+                >
+                  ↩ Return
+                </button>
+              )}
             </div>
           )}
         </div>
