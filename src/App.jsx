@@ -1,16 +1,15 @@
-import { useReducer, useState } from 'react'
-import { createInitialState, gameReducer } from './game/engine.js'
+import { useState } from 'react'
 import { COLOUR_ORDER, COLOURS } from './data/colours.js'
+import { LocalSession } from './session/LocalSession.jsx'
 import GameBoard from './components/GameBoard.jsx'
-
-const ALL_PLAYER_DEFS = COLOUR_ORDER.map((colour, i) => ({
-  id: `p${i + 1}`,
-  name: COLOURS[colour].label,
-  colour,
-}))
 
 function SetupScreen({ onStart }) {
   const [count, setCount] = useState(5)
+  const ALL_PLAYER_DEFS = COLOUR_ORDER.map((colour, i) => ({
+    id: `p${i + 1}`,
+    name: COLOURS[colour].label,
+    colour,
+  }))
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -64,12 +63,11 @@ function SetupScreen({ onStart }) {
 }
 
 function Game({ playerCount, onNewGame }) {
-  const [state, dispatch] = useReducer(
-    gameReducer,
-    { playerDefs: ALL_PLAYER_DEFS.slice(0, playerCount), totalRounds: 12 },
-    createInitialState,
+  return (
+    <LocalSession playerCount={playerCount} onNewGame={onNewGame}>
+      <GameBoard />
+    </LocalSession>
   )
-  return <GameBoard state={state} dispatch={dispatch} onNewGame={onNewGame} />
 }
 
 export default function App() {
