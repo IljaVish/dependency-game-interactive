@@ -11,6 +11,14 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
   const [errorMsg, setErrorMsg] = useState(null)
   const socketRef = useRef(null)
 
+  // Stable per-tab token so reconnects restore the same player slot
+  const [token] = useState(() => {
+    const key = `depgame-token-${roomCode}`
+    let t = sessionStorage.getItem(key)
+    if (!t) { t = crypto.randomUUID(); sessionStorage.setItem(key, t) }
+    return t
+  })
+
   useEffect(() => {
     const host = import.meta.env.VITE_PARTYKIT_HOST ?? 'localhost:1999'
     const socket = new PartySocket({ host, room: roomCode })
@@ -22,6 +30,7 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
         type: 'join',
         name: playerName,
         role: isFacilitator ? 'facilitator' : 'player',
+        token,
       }))
     })
 

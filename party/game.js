@@ -4,7 +4,7 @@ import { COLOUR_ORDER } from '../src/data/colours.js'
 export default class GameServer {
   constructor(party) {
     this.party = party
-    this.lobby = []   // [{ connId, name, colour, role }]  role: 'player' | 'facilitator'
+    this.lobby = []   // [{ connId, name, colour, role, token }]  role: 'player' | 'facilitator'
     this.gameState = null
   }
 
@@ -21,17 +21,13 @@ export default class GameServer {
 
     switch (msg.type) {
       case 'join': {
-        const { name, role } = msg
+        const { name, role, token } = msg
 
-        // Reconnect: same name + role already in lobby AND player is not currently connected
-        const existing = this.lobby.find(p => p.name === name && p.role === role)
+        // Reconnect: same browser-tab token already in lobby
+        const existing = token ? this.lobby.find(p => p.token === token) : null
         if (existing) {
-          if (existing.connected) {
-            sender.send(JSON.stringify({ type: 'error', message: `Name "${name}" is already taken` }))
-            return
-          }
           existing.connId = sender.id
-          existing.connected = true
+          existing.name = name
           const playerIndex = this.lobby.filter(p => p.role === 'player').indexOf(existing)
           sender.send(JSON.stringify({
             type: 'joined',
@@ -53,7 +49,7 @@ export default class GameServer {
         }
 
         if (role === 'facilitator') {
-          this.lobby.push({ connId: sender.id, name, role: 'facilitator', connected: true })
+          this.lobby.push({ connId: sender.id, name, role: 'facilitator', token })
           sender.send(JSON.stringify({ type: 'joined', playerIndex: -1, roomCode: this.party.id }))
         } else {
           const playerCount = this.lobby.filter(p => p.role === 'player').length
@@ -62,7 +58,7 @@ export default class GameServer {
             return
           }
           const colour = COLOUR_ORDER[playerCount]
-          this.lobby.push({ connId: sender.id, name, colour, role: 'player', connected: true })
+          this.lobby.push({ connId: sender.id, name, colour, role: 'player', token })
           sender.send(JSON.stringify({
             type: 'joined',
             playerIndex: playerCount,
@@ -109,8 +105,7 @@ export default class GameServer {
   }
 
   onClose(conn) {
-    const entry = this.lobby.find(p => p.connId === conn.id)
-    if (entry) entry.connected = false
+    // Keep lobby entry — player can reconnect by token
     this.party.broadcast(JSON.stringify({ type: 'lobby', players: this.lobby }))
   }
 }
