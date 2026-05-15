@@ -140,9 +140,18 @@ Any facilitator connected to the room sees the Start Game button. Players see *"
 
 1. **`myPlayerIndex` added to context.** `GameSessionContext` gains a `myPlayerIndex` field (number for network, `null` for pass-and-play). `GameBoard` uses it to show each player only their own controls. Pass-and-play continues to use its own active-player switcher logic.
 
-2. **Phase advancement via "ready" signal.** Each player signals when they have finished their part of a phase (e.g., placed dice, confirmed Set decision). A new `PLAYER_READY` action marks the player as done. The server (or engine) advances the phase once all connected players are ready. This replaces the current single-player phase-advance buttons for network mode.
+2. **Phase advancement is mostly implicit.** Each phase completes per-player via a natural last action — no extra "I'm done" button except in Plan:
 
-3. **Engine changes are likely minimal.** The reducer already tracks per-player state. The main addition is a `readyPlayers: Set<playerIndex>` field and a rule that phase transition fires when `readyPlayers.size === players.length`. The implementation plan will detail the exact engine changes needed.
+   | Phase | Done signal |
+   |---|---|
+   | Set | Last pending card decided (keep or marketplace) — implicit |
+   | Plan | Explicit "Done planning" button — needed because leaving dice unallocated is a valid choice |
+   | Work | Roll action — implicit |
+   | Score | Fully automatic; no player input required |
+
+   The engine tracks which players are done per phase. Once all connected players are done, the phase advances.
+
+3. **Engine changes are likely minimal.** The reducer already tracks per-player state. The main addition is a `readyPlayers: Set<playerIndex>` field per phase and a rule that phase transition fires when all connected players are in `readyPlayers`. The implementation plan will detail the exact engine changes needed.
 
 ## Out of Scope (future)
 
