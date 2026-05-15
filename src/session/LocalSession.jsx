@@ -16,7 +16,7 @@ export function LocalSession({ playerCount, onNewGame, children }) {
     createInitialState,
   )
   return (
-    <GameSessionContext.Provider value={{ state, dispatch, onNewGame }}>
+    <GameSessionContext.Provider value={{ state, dispatch, onNewGame, myPlayerIndex: null }}>
       {children}
     </GameSessionContext.Provider>
   )
