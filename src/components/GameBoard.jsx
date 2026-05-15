@@ -119,7 +119,6 @@ export default function GameBoard() {
 
   function handleDieClick(playerId, die) {
     if (phase !== 'plan' || die.locked) return
-    if (isDonePlanning) return
     if (playerId !== activePlayerId) return
     setAllDiceSelectedFor(null)
     if (die.allocatedTo !== null) {
@@ -131,14 +130,12 @@ export default function GameBoard() {
 
   function handleSelectAll(playerId) {
     if (playerId !== activePlayerId) return
-    if (isDonePlanning) return
     setSelectedDie(null)
     setAllDiceSelectedFor(prev => prev === playerId ? null : playerId)
   }
 
   function handleCardClick(cardId) {
     if (phase !== 'plan') return
-    if (isDonePlanning) return
     if (allDiceSelectedFor) {
       dispatch({ type: 'ALLOCATE_ALL_TO_CARD', playerId: allDiceSelectedFor, cardId })
       setAllDiceSelectedFor(null)
@@ -168,14 +165,12 @@ export default function GameBoard() {
   }
 
   function handleClaimTraining(key) {
-    if (isDonePlanning) return
     const cardId = pickTrainingCardId(key, activePlayerId, players)
     if (!cardId) return
     dispatch({ type: 'CLAIM_TRAINING_CARD', playerId: activePlayerId, cardId })
   }
 
   function handleClaimSideProject() {
-    if (isDonePlanning) return
     if (hasClaimedSideProject(activePlayerId)) return
     const cardId = pickSideProjectCardId(activePlayerId, players, claimedByPlayer)
     if (!cardId) return
@@ -428,6 +423,9 @@ export default function GameBoard() {
         </div>
       </div>
 
+      {/* Board content — locked while waiting after Done planning */}
+      <div className={isDonePlanning ? 'flex flex-col gap-4 pointer-events-none select-none opacity-60' : 'flex flex-col gap-4'}>
+
       {/* ── Score phase: round summary ── */}
       {phase === 'score' && (() => {
         const rs = state.roundScores[state.roundScores.length - 1]
@@ -670,6 +668,8 @@ export default function GameBoard() {
           </div>
         )
       })()}
+
+      </div>{/* end board content lock wrapper */}
     </div>
   )
 }
