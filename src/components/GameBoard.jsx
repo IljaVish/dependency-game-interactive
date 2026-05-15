@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useGameSession } from '../session/GameSessionContext.jsx'
 import ProjectCard from './ProjectCard.jsx'
 import TrainingCard from './TrainingCard.jsx'
@@ -65,6 +65,18 @@ export default function GameBoard() {
   const isNetworkMode = myPlayerIndex != null
   const isObserverMode = isFacilitator
 
+  const myPlayer = isNetworkMode ? (players[myPlayerIndex] ?? null) : null
+  const myPlayerId = myPlayer?.id ?? null
+  const isDonePlanning = isNetworkMode && myPlayerId !== null && state.planReadyPlayers.includes(myPlayerId)
+  const isDoneWorking  = isNetworkMode && myPlayerId !== null && state.workReadyPlayers.includes(myPlayerId)
+  const allMyDiceSettled = myPlayer !== null && myPlayer.dice.every(d => d.value !== null || d.locked)
+  const myCanRework = myPlayer !== null && myPlayer.completedTrainings.includes('rework') && !myPlayer.reworkUsed
+  const iDoneWithSetPhase = isNetworkMode && phase === 'set'
+    && myPlayer !== null && myPlayer.pendingCards.length === 0 && myPlayer.needsDraw === 0
+  const setPhaseWaitCount = iDoneWithSetPhase
+    ? players.filter(p => p.pendingCards.length > 0 || p.needsDraw > 0).length
+    : 0
+
   // ── UI-only state ────────────────────────────────────────────────────────────
   const [selectedDie,           setSelectedDie]           = useState(null)
   const [allDiceSelectedFor,    setAllDiceSelectedFor]    = useState(null) // playerId | null
@@ -107,6 +119,7 @@ export default function GameBoard() {
 
   function handleDieClick(playerId, die) {
     if (phase !== 'plan' || die.locked) return
+    if (isDonePlanning) return
     if (playerId !== activePlayerId) return
     setAllDiceSelectedFor(null)
     if (die.allocatedTo !== null) {
@@ -118,12 +131,14 @@ export default function GameBoard() {
 
   function handleSelectAll(playerId) {
     if (playerId !== activePlayerId) return
+    if (isDonePlanning) return
     setSelectedDie(null)
     setAllDiceSelectedFor(prev => prev === playerId ? null : playerId)
   }
 
   function handleCardClick(cardId) {
     if (phase !== 'plan') return
+    if (isDonePlanning) return
     if (allDiceSelectedFor) {
       dispatch({ type: 'ALLOCATE_ALL_TO_CARD', playerId: allDiceSelectedFor, cardId })
       setAllDiceSelectedFor(null)
@@ -153,12 +168,14 @@ export default function GameBoard() {
   }
 
   function handleClaimTraining(key) {
+    if (isDonePlanning) return
     const cardId = pickTrainingCardId(key, activePlayerId, players)
     if (!cardId) return
     dispatch({ type: 'CLAIM_TRAINING_CARD', playerId: activePlayerId, cardId })
   }
 
   function handleClaimSideProject() {
+    if (isDonePlanning) return
     if (hasClaimedSideProject(activePlayerId)) return
     const cardId = pickSideProjectCardId(activePlayerId, players, claimedByPlayer)
     if (!cardId) return
@@ -274,6 +291,14 @@ export default function GameBoard() {
     })
   )
 
+  useEffect(() => {
+    if (phase !== 'work' || !isNetworkMode || isObserverMode) return
+    if (!myPlayerId || isDoneWorking) return
+    if (allMyDiceSettled && !myCanRework) {
+      dispatch({ type: 'PLAYER_DONE_WORKING', playerId: myPlayerId })
+    }
+  }, [phase, isNetworkMode, isObserverMode, myPlayerId, allMyDiceSettled, myCanRework, isDoneWorking])
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col gap-4">
 
@@ -335,32 +360,54 @@ export default function GameBoard() {
           {/* Network mode: per-phase controls */}
           {isNetworkMode && !isObserverMode && !gameOver && (
             <>
+              {/* Set phase: waiting indicator when this player has decided */}
+              {iDoneWithSetPhase && setPhaseWaitCount > 0 && (
+                <span className="text-sm text-gray-400 italic">
+                  Waiting… {setPhaseWaitCount} player{setPhaseWaitCount !== 1 ? 's' : ''} deciding
+                </span>
+              )}
+
+              {/* Plan phase */}
               {phase === 'plan' && (
-                advancePending
-                  ? <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
-                      <button onClick={handleNetworkDonePlanning}
-                        className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer">
-                        Done anyway
+                isDonePlanning
+                  ? <span className="text-sm text-gray-400 italic">
+                      Waiting… {state.planReadyPlayers.length}/{players.length} done planning
+                    </span>
+                  : advancePending
+                    ? <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
+                        <button onClick={handleNetworkDonePlanning}
+                          className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer">
+                          Done anyway
+                        </button>
+                        <button onClick={() => setAdvancePending(false)}
+                          className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
+                      </div>
+                    : <button
+                        onClick={handleNetworkDonePlanning}
+                        className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                      >
+                        Done planning
                       </button>
-                      <button onClick={() => setAdvancePending(false)}
-                        className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
-                    </div>
-                  : <button
-                      onClick={handleNetworkDonePlanning}
-                      className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
-                    >
-                      Done planning
-                    </button>
               )}
+
+              {/* Work phase: auto-advances when all dice settled + no rework; button only to skip rework */}
               {phase === 'work' && (
-                <button
-                  onClick={() => dispatch({ type: 'PLAYER_DONE_WORKING', playerId: players[myPlayerIndex].id })}
-                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
-                >
-                  Done working
-                </button>
+                isDoneWorking
+                  ? <span className="text-sm text-gray-400 italic">
+                      Waiting… {state.workReadyPlayers.length}/{players.length} done working
+                    </span>
+                  : (myCanRework && allMyDiceSettled)
+                    ? <button
+                        onClick={() => dispatch({ type: 'PLAYER_DONE_WORKING', playerId: myPlayerId })}
+                        className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                      >
+                        Done working
+                      </button>
+                    : null
               )}
+
+              {/* Score phase */}
               {phase === 'score' && (
                 <button
                   onClick={() => {
@@ -376,7 +423,6 @@ export default function GameBoard() {
                   Next Round →
                 </button>
               )}
-              {/* Set phase: auto-advances when all pending cards decided */}
             </>
           )}
         </div>
