@@ -8,6 +8,7 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
   const [playerIndex, setPlayerIndex] = useState(null)
   const [lobbyPlayers, setLobbyPlayers] = useState([])
   const [gameState, setGameState] = useState(null)
+  const [errorMsg, setErrorMsg] = useState(null)
   const socketRef = useRef(null)
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
       if (msg.type === 'joined') setPlayerIndex(msg.playerIndex)
       if (msg.type === 'lobby') setLobbyPlayers(msg.players)
       if (msg.type === 'state') setGameState(msg.state)
+      if (msg.type === 'error') setErrorMsg(msg.message)
     })
 
     return () => socket.close()
@@ -61,25 +63,39 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
     )
   }
 
+  const errorToast = errorMsg && (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-700 text-white px-6 py-3 rounded-xl shadow-lg flex items-center gap-4 z-50">
+      <span>{errorMsg}</span>
+      <button onClick={() => setErrorMsg(null)} className="text-white/80 hover:text-white text-lg leading-none cursor-pointer">×</button>
+    </div>
+  )
+
   if (!gameState) {
     return (
-      <Lobby
-        roomCode={roomCode}
-        players={lobbyPlayers}
-        isFacilitator={isFacilitator}
-        onStart={handleStart}
-      />
+      <>
+        {errorToast}
+        <Lobby
+          roomCode={roomCode}
+          players={lobbyPlayers}
+          isFacilitator={isFacilitator}
+          onStart={handleStart}
+        />
+      </>
     )
   }
 
   return (
-    <GameSessionContext.Provider value={{
-      state: gameState,
-      dispatch,
-      onNewGame,
-      myPlayerIndex: isFacilitator ? null : playerIndex,
-    }}>
-      {children}
-    </GameSessionContext.Provider>
+    <>
+      {errorToast}
+      <GameSessionContext.Provider value={{
+        state: gameState,
+        dispatch,
+        onNewGame,
+        myPlayerIndex: isFacilitator ? null : playerIndex,
+        isFacilitator,
+      }}>
+        {children}
+      </GameSessionContext.Provider>
+    </>
   )
 }

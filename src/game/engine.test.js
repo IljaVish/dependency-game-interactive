@@ -34,6 +34,7 @@ function makeState(overrides = {}) {
     gameOver: false,
     teamScore: 0,
     planReadyPlayers: [],
+    workReadyPlayers: [],
     players: [],
     deck: [],
     marketplace: [],
@@ -944,6 +945,84 @@ describe('planReadyPlayers resets on new round', () => {
     })
     const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
     expect(next.planReadyPlayers).toEqual([])
+  })
+})
+
+describe('PLAYER_DONE_WORKING', () => {
+  function makeWorkState(playerCount = 2) {
+    const players = Array.from({ length: playerCount }, (_, i) =>
+      makePlayer(`p${i + 1}`, ['green', 'blue', 'red', 'yellow', 'purple', 'orange'][i])
+    )
+    return makeState({ phase: 'work', players, workReadyPlayers: [] })
+  }
+
+  it('adds playerId to workReadyPlayers', () => {
+    const s = gameReducer(makeWorkState(2), { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    expect(s.workReadyPlayers).toEqual(['p1'])
+    expect(s.phase).toBe('work')
+  })
+
+  it('advances to score when all players are ready', () => {
+    const s0 = makeWorkState(2)
+    const s1 = gameReducer(s0, { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    const s2 = gameReducer(s1, { type: 'PLAYER_DONE_WORKING', playerId: 'p2' })
+    expect(s2.phase).toBe('score')
+    expect(s2.workReadyPlayers).toEqual([])
+  })
+
+  it('scoring is applied when advancing to score', () => {
+    // Ensure scoreRound runs, not just a phase flip
+    const s0 = makeState({
+      phase: 'work',
+      workReadyPlayers: [],
+      players: [
+        makePlayer('p1', 'green', {
+          dice: [
+            makeDie('green-0', { value: 6, allocatedTo: 'side-1' }),
+            ...Array.from({ length: 4 }, (_, i) => makeDie(`green-${i + 1}`, { value: 1 })),
+          ],
+        }),
+      ],
+    })
+    const s1 = gameReducer(s0, { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    expect(s1.phase).toBe('score')
+    expect(s1.teamScore).toBe(1)
+  })
+
+  it('ignores duplicate playerId', () => {
+    const s0 = makeWorkState(2)
+    const s1 = gameReducer(s0, { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    const s2 = gameReducer(s1, { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    expect(s2.workReadyPlayers).toEqual(['p1'])
+    expect(s2.phase).toBe('work')
+  })
+
+  it('is a no-op outside work phase', () => {
+    const s = makeState({ phase: 'plan', players: [makePlayer('p1', 'green')], workReadyPlayers: [] })
+    const s2 = gameReducer(s, { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    expect(s2.phase).toBe('plan')
+    expect(s2).toBe(s)
+  })
+
+  it('is a no-op with zero players', () => {
+    const s = makeState({ phase: 'work', players: [], workReadyPlayers: [] })
+    const s2 = gameReducer(s, { type: 'PLAYER_DONE_WORKING', playerId: 'p1' })
+    expect(s2).toBe(s)
+  })
+})
+
+describe('workReadyPlayers resets on new round', () => {
+  it('is empty after ADVANCE_TO_NEXT_ROUND', () => {
+    const state = makeState({
+      phase: 'score',
+      round: 1,
+      totalRounds: 3,
+      workReadyPlayers: ['p1'],
+      players: [makePlayer('p1', 'green')],
+      roundScores: [{ round: 1, entries: [] }],
+    })
+    const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
+    expect(next.workReadyPlayers).toEqual([])
   })
 })
 

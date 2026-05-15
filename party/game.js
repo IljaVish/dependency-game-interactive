@@ -41,6 +41,12 @@ export default class GameServer {
           return
         }
 
+        // Reject new joins (not reconnects) after game has started
+        if (this.gameState) {
+          sender.send(JSON.stringify({ type: 'error', message: 'Game already in progress' }))
+          return
+        }
+
         if (role === 'facilitator') {
           this.lobby.push({ connId: sender.id, name, role: 'facilitator' })
           sender.send(JSON.stringify({ type: 'joined', playerIndex: -1, roomCode: this.party.id }))
@@ -90,16 +96,6 @@ export default class GameServer {
         if (!senderEntry || senderEntry.role !== 'player') return
 
         this.gameState = gameReducer(this.gameState, msg.action)
-
-        // Auto-advance Work → Score once every player has rolled all their dice
-        if (this.gameState.phase === 'work') {
-          const allRolled = this.gameState.players.every(
-            p => p.dice.every(d => d.value !== null || d.locked)
-          )
-          if (allRolled) {
-            this.gameState = gameReducer(this.gameState, { type: 'ADVANCE_TO_SCORE' })
-          }
-        }
 
         this.party.broadcast(JSON.stringify({ type: 'state', state: this.gameState }))
         break

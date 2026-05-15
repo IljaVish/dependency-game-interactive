@@ -60,9 +60,10 @@ function pickSideProjectCardId(playerId, players, claimedByPlayer) {
 const BASE_SCORE = 70 // simulation top-strategy average — used as par for the game-end summary
 
 export default function GameBoard() {
-  const { state, dispatch, onNewGame, myPlayerIndex } = useGameSession()
+  const { state, dispatch, onNewGame, myPlayerIndex, isFacilitator } = useGameSession()
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
   const isNetworkMode = myPlayerIndex != null
+  const isObserverMode = isFacilitator
 
   // ── UI-only state ────────────────────────────────────────────────────────────
   const [selectedDie,           setSelectedDie]           = useState(null)
@@ -286,7 +287,7 @@ export default function GameBoard() {
           <span className="text-sm text-gray-300">Team: <span className="font-semibold text-white">{state.teamScore}</span> pts</span>
         </div>
         <div className="flex items-center gap-3">
-          {phase === 'work' && !isNetworkMode && !rollAllPending && (
+          {phase === 'work' && !isNetworkMode && !isObserverMode && !rollAllPending && (
             <button
               onClick={() => {
                 if (rollAllWarnings.length > 0) { setRollAllPending(true) }
@@ -298,7 +299,7 @@ export default function GameBoard() {
               Roll all dice
             </button>
           )}
-          {phase === 'work' && !isNetworkMode && rollAllPending && (
+          {phase === 'work' && !isNetworkMode && !isObserverMode && rollAllPending && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-yellow-300">{rollAllWarnings.join(' ')}</span>
               <button
@@ -312,7 +313,7 @@ export default function GameBoard() {
             </div>
           )}
           {/* Pass-and-play: advance button for all phases */}
-          {!isNetworkMode && !gameOver && (
+          {!isNetworkMode && !isObserverMode && !gameOver && (
             advancePending
               ? <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
@@ -332,7 +333,7 @@ export default function GameBoard() {
           )}
 
           {/* Network mode: per-phase controls */}
-          {isNetworkMode && !gameOver && (
+          {isNetworkMode && !isObserverMode && !gameOver && (
             <>
               {phase === 'plan' && (
                 advancePending
@@ -352,6 +353,14 @@ export default function GameBoard() {
                       Done planning
                     </button>
               )}
+              {phase === 'work' && (
+                <button
+                  onClick={() => dispatch({ type: 'PLAYER_DONE_WORKING', playerId: players[myPlayerIndex].id })}
+                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                >
+                  Done working
+                </button>
+              )}
               {phase === 'score' && (
                 <button
                   onClick={() => {
@@ -368,7 +377,6 @@ export default function GameBoard() {
                 </button>
               )}
               {/* Set phase: auto-advances when all pending cards decided */}
-              {/* Work phase: server auto-advances after all players roll */}
             </>
           )}
         </div>
@@ -475,7 +483,7 @@ export default function GameBoard() {
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400">Players</h2>
           {/* Player switcher — only in pass-and-play */}
-          {!isNetworkMode && (
+          {!isNetworkMode && !isObserverMode && (
             <div className="flex gap-1.5">
               {players.map(p => (
                 <button

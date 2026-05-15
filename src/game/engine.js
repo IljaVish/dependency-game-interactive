@@ -127,6 +127,7 @@ export function createInitialState({ playerDefs, totalRounds = 12 }) {
     gameOver: false,
     teamScore: 0,
     planReadyPlayers: [],
+    workReadyPlayers: [],
     players,
     deck,
     marketplace: [],
@@ -504,6 +505,7 @@ function setupNextRound(state) {
     round: nextRound,
     gameOver,
     planReadyPlayers: [],
+    workReadyPlayers: [],
     players,
   })
 }
@@ -801,7 +803,7 @@ export function gameReducer(state, action) {
       return { ...state, phase: 'plan' }
 
     case 'ADVANCE_TO_WORK':
-      return { ...state, phase: 'work', planReadyPlayers: [] }
+      return { ...state, phase: 'work', planReadyPlayers: [], workReadyPlayers: [] }
 
     case 'PLAYER_DONE_PLANNING': {
       // action: { playerId }
@@ -812,6 +814,19 @@ export function gameReducer(state, action) {
       const allReady = state.players.every(p => planReadyPlayers.includes(p.id))
       if (allReady) return { ...state, planReadyPlayers: [], phase: 'work' }
       return { ...state, planReadyPlayers }
+    }
+
+    case 'PLAYER_DONE_WORKING': {
+      // action: { playerId }
+      if (state.phase !== 'work') return state
+      if (state.players.length === 0) return state
+      if (state.workReadyPlayers.includes(action.playerId)) return state
+      const workReadyPlayers = [...state.workReadyPlayers, action.playerId]
+      const allReady = state.players.every(p => workReadyPlayers.includes(p.id))
+      if (allReady) {
+        return gameReducer({ ...state, workReadyPlayers: [] }, { type: 'ADVANCE_TO_SCORE' })
+      }
+      return { ...state, workReadyPlayers }
     }
 
     case 'ADVANCE_TO_SCORE': {
