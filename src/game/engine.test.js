@@ -42,6 +42,13 @@ function makeState(overrides = {}) {
   }
 }
 
+function makePlanState(playerCount = 2) {
+  const players = Array.from({ length: playerCount }, (_, i) =>
+    makePlayer(`p${i + 1}`, ['green', 'blue', 'red', 'yellow', 'purple', 'orange'][i])
+  )
+  return makeState({ phase: 'plan', players, planReadyPlayers: [] })
+}
+
 // ─── matchDiceToSlots ─────────────────────────────────────────────────────────
 
 describe('matchDiceToSlots', () => {
@@ -890,13 +897,6 @@ describe('ADVANCE_TO_NEXT_ROUND', () => {
 })
 
 describe('PLAYER_DONE_PLANNING', () => {
-  function makePlanState(playerCount = 2) {
-    const players = Array.from({ length: playerCount }, (_, i) =>
-      makePlayer(`p${i + 1}`, ['green', 'blue', 'red', 'yellow', 'purple', 'orange'][i])
-    )
-    return makeState({ phase: 'plan', players, planReadyPlayers: [] })
-  }
-
   it('adds playerId to planReadyPlayers', () => {
     const state = makePlanState(2)
     const next = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
@@ -923,6 +923,12 @@ describe('PLAYER_DONE_PLANNING', () => {
     const state = makeState({ phase: 'work', planReadyPlayers: [] })
     const next = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
     expect(next.planReadyPlayers).toEqual([])
+  })
+
+  it('is a no-op with zero players', () => {
+    const state = makeState({ phase: 'plan', players: [], planReadyPlayers: [] })
+    const next = gameReducer(state, { type: 'PLAYER_DONE_PLANNING', playerId: 'p1' })
+    expect(next.phase).toBe('plan')
   })
 })
 

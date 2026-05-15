@@ -801,11 +801,12 @@ export function gameReducer(state, action) {
       return { ...state, phase: 'plan' }
 
     case 'ADVANCE_TO_WORK':
-      return { ...state, phase: 'work' }
+      return { ...state, phase: 'work', planReadyPlayers: [] }
 
     case 'PLAYER_DONE_PLANNING': {
       // action: { playerId }
       if (state.phase !== 'plan') return state
+      if (state.players.length === 0) return state
       if (state.planReadyPlayers.includes(action.playerId)) return state
       const planReadyPlayers = [...state.planReadyPlayers, action.playerId]
       const allReady = state.players.every(p => planReadyPlayers.includes(p.id))
