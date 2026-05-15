@@ -132,11 +132,17 @@ Any facilitator connected to the room sees the Start Game button. Players see *"
 - `src/components/GameBoard.jsx` and all children
 - `src/game/engine.js`
 
-## Open Question: Sequential vs Simultaneous Action Model
+## Action Model: Simultaneous (Network) vs Sequential (Pass & Play)
 
-The current engine is built around a sequential active-player model (pass-and-play: one player acts per phase, then hands off). Network play naturally enables all players to act simultaneously on their own devices.
+**Network mode is simultaneous.** All players act at the same time on their own devices, matching the physical game. Sequential turn-by-turn is a pass-and-play workaround only.
 
-**Decision to make during implementation planning:** keep sequential (simpler, no engine changes, less engaging) or move to simultaneous (matches the physical game, requires coordinating when a phase is "complete for all players"). This affects whether `GameBoard` needs a `myPlayerIndex` added to context to know which player's controls to show.
+**Implications for implementation:**
+
+1. **`myPlayerIndex` added to context.** `GameSessionContext` gains a `myPlayerIndex` field (number for network, `null` for pass-and-play). `GameBoard` uses it to show each player only their own controls. Pass-and-play continues to use its own active-player switcher logic.
+
+2. **Phase advancement via "ready" signal.** Each player signals when they have finished their part of a phase (e.g., placed dice, confirmed Set decision). A new `PLAYER_READY` action marks the player as done. The server (or engine) advances the phase once all connected players are ready. This replaces the current single-player phase-advance buttons for network mode.
+
+3. **Engine changes are likely minimal.** The reducer already tracks per-player state. The main addition is a `readyPlayers: Set<playerIndex>` field and a rule that phase transition fires when `readyPlayers.size === players.length`. The implementation plan will detail the exact engine changes needed.
 
 ## Out of Scope (future)
 
