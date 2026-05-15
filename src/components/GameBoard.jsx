@@ -60,8 +60,9 @@ function pickSideProjectCardId(playerId, players, claimedByPlayer) {
 const BASE_SCORE = 70 // simulation top-strategy average — used as par for the game-end summary
 
 export default function GameBoard() {
-  const { state, dispatch, onNewGame } = useGameSession()
+  const { state, dispatch, onNewGame, myPlayerIndex } = useGameSession()
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
+  const isNetworkMode = myPlayerIndex != null
 
   // ── UI-only state ────────────────────────────────────────────────────────────
   const [selectedDie,           setSelectedDie]           = useState(null)
@@ -72,7 +73,11 @@ export default function GameBoard() {
   const [rollAllPending,   setRollAllPending]  = useState(false)
   const [advancePending,   setAdvancePending]  = useState(false)
   const [workModes,        setWorkModes]       = useState({})
-  const [activePlayerId,   setActivePlayerId]  = useState(() => players[0]?.id ?? null)
+  const [activePlayerId,   setActivePlayerId]  = useState(() =>
+    myPlayerIndex != null
+      ? players[myPlayerIndex]?.id ?? null
+      : players[0]?.id ?? null
+  )
 
   function handleAdvancePhase() {
     if (phase === 'plan' && planToWorkWarnings.length > 0 && !advancePending) {
@@ -86,6 +91,15 @@ export default function GameBoard() {
     setAdvancePending(false)
     setWorkModes({})
     if (phase === 'score') setClaimedByPlayer({})
+  }
+
+  function handleNetworkDonePlanning() {
+    if (planToWorkWarnings.length > 0 && !advancePending) {
+      setAdvancePending(true)
+      return
+    }
+    dispatch({ type: 'PLAYER_DONE_PLANNING', playerId: players[myPlayerIndex].id })
+    setAdvancePending(false)
   }
 
   // ── Plan phase — die selection & allocation ──────────────────────────────────
@@ -236,10 +250,18 @@ export default function GameBoard() {
     .map(p => `${p.name} hasn't used Set Die.`)
     : []
 
-  const planToWorkWarnings = phase === 'plan' ? players.flatMap(p => {
-    const n = p.dice.filter(d => !d.locked && d.allocatedTo === null).length
-    return n > 0 ? [`${p.name} has ${n} unallocated dice.`] : []
-  }) : []
+  const planToWorkWarnings = phase === 'plan'
+    ? isNetworkMode
+      ? (() => {
+          const myP = players[myPlayerIndex]
+          const n = myP ? myP.dice.filter(d => !d.locked && d.allocatedTo === null).length : 0
+          return n > 0 ? [`You have ${n} unallocated dice.`] : []
+        })()
+      : players.flatMap(p => {
+          const n = p.dice.filter(d => !d.locked && d.allocatedTo === null).length
+          return n > 0 ? [`${p.name} has ${n} unallocated dice.`] : []
+        })
+    : []
 
   const trainingAvailable = Object.fromEntries(
     TRAINING_TYPES.map(key => {
@@ -264,7 +286,7 @@ export default function GameBoard() {
           <span className="text-sm text-gray-300">Team: <span className="font-semibold text-white">{state.teamScore}</span> pts</span>
         </div>
         <div className="flex items-center gap-3">
-          {phase === 'work' && !rollAllPending && (
+          {phase === 'work' && !isNetworkMode && !rollAllPending && (
             <button
               onClick={() => {
                 if (rollAllWarnings.length > 0) { setRollAllPending(true) }
@@ -276,7 +298,7 @@ export default function GameBoard() {
               Roll all dice
             </button>
           )}
-          {rollAllPending && (
+          {phase === 'work' && !isNetworkMode && rollAllPending && (
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-yellow-300">{rollAllWarnings.join(' ')}</span>
               <button
@@ -289,7 +311,8 @@ export default function GameBoard() {
                 className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
             </div>
           )}
-          {!gameOver && (
+          {/* Pass-and-play: advance button for all phases */}
+          {!isNetworkMode && !gameOver && (
             advancePending
               ? <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
@@ -306,6 +329,47 @@ export default function GameBoard() {
                 >
                   {NEXT_LABEL[phase]}
                 </button>
+          )}
+
+          {/* Network mode: per-phase controls */}
+          {isNetworkMode && !gameOver && (
+            <>
+              {phase === 'plan' && (
+                advancePending
+                  ? <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
+                      <button onClick={handleNetworkDonePlanning}
+                        className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer">
+                        Done anyway
+                      </button>
+                      <button onClick={() => setAdvancePending(false)}
+                        className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
+                    </div>
+                  : <button
+                      onClick={handleNetworkDonePlanning}
+                      className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                    >
+                      Done planning
+                    </button>
+              )}
+              {phase === 'score' && (
+                <button
+                  onClick={() => {
+                    dispatch({ type: 'ADVANCE_TO_NEXT_ROUND' })
+                    setSelectedDie(null)
+                    setAllDiceSelectedFor(null)
+                    setAdvancePending(false)
+                    setWorkModes({})
+                    setClaimedByPlayer({})
+                  }}
+                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                >
+                  Next Round →
+                </button>
+              )}
+              {/* Set phase: auto-advances when all pending cards decided */}
+              {/* Work phase: server auto-advances after all players roll */}
+            </>
           )}
         </div>
       </div>
@@ -410,24 +474,26 @@ export default function GameBoard() {
       <section className="bg-gray-800 rounded-xl p-4 flex flex-col gap-2">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400">Players</h2>
-          {/* Player switcher — tap your colour to become the active player */}
-          <div className="flex gap-1.5">
-            {players.map(p => (
-              <button
-                key={p.id}
-                onClick={() => setActivePlayerId(p.id)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer"
-                style={{
-                  backgroundColor: activePlayerId === p.id ? COLOURS[p.colour].hex : '#374151',
-                  color: activePlayerId === p.id ? '#fff' : COLOURS[p.colour].hex,
-                  outline: activePlayerId === p.id ? `2px solid ${COLOURS[p.colour].hex}` : 'none',
-                  outlineOffset: '2px',
-                }}
-              >
-                {p.name}
-              </button>
-            ))}
-          </div>
+          {/* Player switcher — only in pass-and-play */}
+          {!isNetworkMode && (
+            <div className="flex gap-1.5">
+              {players.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setActivePlayerId(p.id)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer"
+                  style={{
+                    backgroundColor: activePlayerId === p.id ? COLOURS[p.colour].hex : '#374151',
+                    color: activePlayerId === p.id ? '#fff' : COLOURS[p.colour].hex,
+                    outline: activePlayerId === p.id ? `2px solid ${COLOURS[p.colour].hex}` : 'none',
+                    outlineOffset: '2px',
+                  }}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {/* Active player's row is always first */}
         {[...players].sort((a, b) => a.id === activePlayerId ? -1 : b.id === activePlayerId ? 1 : 0)
