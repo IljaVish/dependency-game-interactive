@@ -52,9 +52,7 @@ export default function PlayerRow({
   const laneTrainings   = getLaneTrainings(player)
   const laneSideProject = getLaneSideProject(player, playerClaimed)
 
-  const pendingCardData = player.pendingCard ? findCard(player.pendingCard.cardId) : null
-  const canKeep      = !(pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour)
-  const hasSetAction = isSet && player.pendingCard
+  const hasSetAction = isSet && player.pendingCards.length > 0
   const hasCardArea  = player.ownedCards.length > 0 || laneTrainings.length > 0 || laneSideProject
 
   const canRoll   = isWork && player.dice.some(d => d.value === null)
@@ -210,27 +208,31 @@ export default function PlayerRow({
 
       {/* ── Set phase: keep / put to market — only shown to the active player (private info) ── */}
       {hasSetAction && isActivePlayer && (
-        <div className="flex items-start gap-4 pt-1 border-t border-gray-600">
-          {player.pendingCard && (
-            <div className="flex items-start gap-4">
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs text-gray-400 uppercase tracking-wide">Drawn card</span>
-                <ProjectCard card={findCard(player.pendingCard.cardId)} />
-              </div>
-              <div className="flex flex-col gap-2 pt-7">
-                {canKeep && (
-                  <button onClick={onKeep}
-                    className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
-                    Keep it
+        <div className="flex items-start gap-6 flex-wrap pt-1 border-t border-gray-600">
+          {player.pendingCards.map(pending => {
+            const card = findCard(pending.cardId)
+            const canKeepThis = !(card?.type === 'project' && card.depColour === player.colour)
+            return (
+              <div key={pending.cardId} className="flex items-start gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">Drawn card</span>
+                  <ProjectCard card={card} />
+                </div>
+                <div className="flex flex-col gap-2 pt-7">
+                  {canKeepThis && (
+                    <button onClick={() => onKeep(pending.cardId)}
+                      className="bg-green-700 hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
+                      Keep it
+                    </button>
+                  )}
+                  <button onClick={() => onPutToMarket(pending.cardId)}
+                    className="bg-yellow-700 hover:bg-yellow-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
+                    → Market
                   </button>
-                )}
-                <button onClick={onPutToMarket}
-                  className="bg-yellow-700 hover:bg-yellow-600 text-white text-xs px-3 py-1.5 rounded-lg cursor-pointer font-medium">
-                  → Market
-                </button>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })}
         </div>
       )}
 

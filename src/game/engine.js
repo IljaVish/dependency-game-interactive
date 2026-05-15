@@ -47,8 +47,9 @@ export function findCard(id) {
 //                            (array; players can own multiple projects simultaneously)
 //     activeTrainingCards: [{ cardId: string }]
 //                            (training copies in the player's lane; persists until training completes)
-//     pendingCard: null | { cardId: string, drawnRound: number }
-//                            (drawn this round, not yet decided to keep or put to marketplace)
+//     pendingCards: [{ cardId: string, drawnRound: number }]
+//                            (drawn this round, not yet decided to keep or put to marketplace; normally
+//                            one entry, but 2+ when the player delivered multiple projects last round)
 //     completedTrainings: string[]    (training type keys: 'rework', 'support', 'set'; active from next round)
 //     reworkUsed: boolean    (reroll-2 ability, resets each round)
 //     setDieUsed: boolean    (set-1-die ability, resets each round)
@@ -68,23 +69,26 @@ export function findCard(id) {
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
-// Automatically deals a pending card to every player whose needsDraw flag is set.
-// Called at the start of each round (including round 1) so the Set phase begins
-// with cards already in hand — no manual "Draw" action needed.
+// Automatically deals all pending cards to every player whose needsDraw count exceeds
+// their current pendingCards length. Called at the start of each round so the Set phase
+// begins with all cards already in hand — no manual "Draw" action needed.
 function autoDraw(state) {
   let s = state
-  for (const player of s.players) {
-    if (!player.needsDraw || player.pendingCard) continue
-    const [cardId, newDeck] = drawFromDeck(s.deck)
-    if (!cardId) continue
-    s = {
-      ...s,
-      deck: newDeck,
-      players: s.players.map(p =>
-        p.id === player.id
-          ? { ...p, pendingCard: { cardId, drawnRound: s.round } }
-          : p
-      ),
+  for (const player of state.players) {
+    const needed = player.needsDraw - player.pendingCards.length
+    if (needed <= 0) continue
+    for (let i = 0; i < needed; i++) {
+      const [cardId, newDeck] = drawFromDeck(s.deck)
+      if (!cardId) break
+      s = {
+        ...s,
+        deck: newDeck,
+        players: s.players.map(p =>
+          p.id === player.id
+            ? { ...p, pendingCards: [...p.pendingCards, { cardId, drawnRound: s.round }] }
+            : p
+        ),
+      }
     }
   }
   return s
@@ -108,7 +112,7 @@ export function createInitialState({ playerDefs, totalRounds = 12 }) {
       locked: false,
     })),
     ownedCards: [],
-    pendingCard: null,
+    pendingCards: [],
     activeTrainingCards: [],
     completedTrainings: [],
     reworkUsed: false,
@@ -511,25 +515,25 @@ export function gameReducer(state, action) {
 
     case 'DRAW_CARD': {
       // action: { playerId }
-      // Player draws the top card from the deck. Only allowed when needsDraw is true
-      // and no pending card is already held. Each player draws at most once per Set phase.
+      // Player draws the top card from the deck. Only allowed when pending count is below needsDraw.
       const player = state.players.find(p => p.id === action.playerId)
-      if (!player?.needsDraw || player.pendingCard !== null) return state
+      if (!player?.needsDraw || player.pendingCards.length >= player.needsDraw) return state
       const [cardId, newDeck] = drawFromDeck(state.deck)
       if (!cardId) return state
       return updatePlayer(
         { ...state, deck: newDeck },
         action.playerId,
-        p => ({ ...p, pendingCard: { cardId, drawnRound: state.round } })
+        p => ({ ...p, pendingCards: [...p.pendingCards, { cardId, drawnRound: state.round }] })
       )
     }
 
     case 'KEEP_CARD': {
-      // action: { playerId }
-      // Player keeps their pendingCard as ownedCard (replaces any current ownedCard back to deck).
+      // action: { playerId, cardId }
+      // Player keeps a specific pending card as an owned card.
       const player = state.players.find(p => p.id === action.playerId)
-      if (!player?.pendingCard) return state
-      const pendingCardData = findCard(player.pendingCard.cardId)
+      const pendingEntry = player?.pendingCards.find(pc => pc.cardId === action.cardId)
+      if (!pendingEntry) return state
+      const pendingCardData = findCard(action.cardId)
       if (pendingCardData?.type === 'project' && pendingCardData.depColour === player.colour) return state
 
       const next = autoDraw(updatePlayer(
@@ -537,31 +541,31 @@ export function gameReducer(state, action) {
         action.playerId,
         p => ({
           ...p,
-          ownedCards: [...p.ownedCards, p.pendingCard],
-          pendingCard: null,
+          ownedCards: [...p.ownedCards, { cardId: pendingEntry.cardId, drawnRound: pendingEntry.drawnRound }],
+          pendingCards: p.pendingCards.filter(pc => pc.cardId !== action.cardId),
           needsDraw: Math.max(0, p.needsDraw - 1),
         })
       ))
-      return next.players.every(p => p.pendingCard === null) ? { ...next, phase: 'plan' } : next
+      return next.players.every(p => p.pendingCards.length === 0) ? { ...next, phase: 'plan' } : next
     }
 
     case 'PUT_TO_MARKETPLACE': {
-      // action: { playerId }
-      // Player puts pendingCard into the marketplace. This ends their Set phase for the round —
-      // they do NOT draw again. If they want a project this round, they take one from the
-      // marketplace during the Plan phase.
+      // action: { playerId, cardId }
+      // Player sends a specific pending card to the marketplace.
       const player = state.players.find(p => p.id === action.playerId)
-      if (!player?.pendingCard) return state
+      const pendingEntry = player?.pendingCards.find(pc => pc.cardId === action.cardId)
+      if (!pendingEntry) return state
 
       const next = autoDraw(updatePlayer(
-        {
-          ...state,
-          marketplace: [...state.marketplace, player.pendingCard],
-        },
+        { ...state, marketplace: [...state.marketplace, pendingEntry] },
         action.playerId,
-        p => ({ ...p, pendingCard: null, needsDraw: Math.max(0, p.needsDraw - 1) })
+        p => ({
+          ...p,
+          pendingCards: p.pendingCards.filter(pc => pc.cardId !== action.cardId),
+          needsDraw: Math.max(0, p.needsDraw - 1),
+        })
       ))
-      return next.players.every(p => p.pendingCard === null) ? { ...next, phase: 'plan' } : next
+      return next.players.every(p => p.pendingCards.length === 0) ? { ...next, phase: 'plan' } : next
     }
 
     case 'TAKE_FROM_MARKETPLACE': {

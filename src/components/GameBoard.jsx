@@ -445,8 +445,8 @@ export default function GameBoard() {
             playerClaimed={claimedByPlayer[player.id] ?? {}}
             onDieClick={(die) => handleDieClick(player.id, die)}
             onCardClick={handleCardClick}
-            onKeep={() => dispatch({ type: 'KEEP_CARD', playerId: player.id })}
-            onPutToMarket={() => dispatch({ type: 'PUT_TO_MARKETPLACE', playerId: player.id })}
+            onKeep={(cardId) => dispatch({ type: 'KEEP_CARD', playerId: player.id, cardId })}
+            onPutToMarket={(cardId) => dispatch({ type: 'PUT_TO_MARKETPLACE', playerId: player.id, cardId })}
             onDeallocateAll={() => dispatch({ type: 'DEALLOCATE_ALL_NON_LOCKED', playerId: player.id })}
             onRollDice={() => dispatch({ type: 'ROLL_PLAYER_DICE', playerId: player.id })}
             workMode={getWorkMode(player.id)}

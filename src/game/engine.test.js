@@ -16,7 +16,7 @@ function makePlayer(id, colour, overrides = {}) {
     totalScore: 0,
     dice: Array.from({ length: 5 }, (_, i) => makeDie(`${colour}-${i}`)),
     ownedCards: [],
-    pendingCard: null,
+    pendingCards: [],
     activeTrainingCards: [],
     completedTrainings: [],
     reworkUsed: false,
@@ -243,11 +243,11 @@ describe('KEEP_CARD / PUT_TO_MARKETPLACE auto-advance', () => {
     const state = makeState({
       phase: 'set',
       players: [
-        makePlayer('p1', 'green', { pendingCard: { cardId: 'project-blue-2', drawnRound: 1 } }),
-        makePlayer('p2', 'blue'),  // no pending card
+        makePlayer('p1', 'green', { pendingCards: [{ cardId: 'project-blue-2', drawnRound: 1 }] }),
+        makePlayer('p2', 'blue'),  // no pending cards
       ],
     })
-    const next = gameReducer(state, { type: 'KEEP_CARD', playerId: 'p1' })
+    const next = gameReducer(state, { type: 'KEEP_CARD', playerId: 'p1', cardId: 'project-blue-2' })
     expect(next.phase).toBe('plan')
   })
 
@@ -255,11 +255,11 @@ describe('KEEP_CARD / PUT_TO_MARKETPLACE auto-advance', () => {
     const state = makeState({
       phase: 'set',
       players: [
-        makePlayer('p1', 'green', { pendingCard: { cardId: 'project-blue-2', drawnRound: 1 } }),
+        makePlayer('p1', 'green', { pendingCards: [{ cardId: 'project-blue-2', drawnRound: 1 }] }),
         makePlayer('p2', 'blue'),
       ],
     })
-    const next = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: 'p1' })
+    const next = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: 'p1', cardId: 'project-blue-2' })
     expect(next.phase).toBe('plan')
   })
 
@@ -267,11 +267,11 @@ describe('KEEP_CARD / PUT_TO_MARKETPLACE auto-advance', () => {
     const state = makeState({
       phase: 'set',
       players: [
-        makePlayer('p1', 'green', { pendingCard: { cardId: 'project-blue-2', drawnRound: 1 } }),
-        makePlayer('p2', 'blue',  { pendingCard: { cardId: 'project-green-2', drawnRound: 1 } }),
+        makePlayer('p1', 'green', { pendingCards: [{ cardId: 'project-blue-2', drawnRound: 1 }] }),
+        makePlayer('p2', 'blue',  { pendingCards: [{ cardId: 'project-green-2', drawnRound: 1 }] }),
       ],
     })
-    const next = gameReducer(state, { type: 'KEEP_CARD', playerId: 'p1' })
+    const next = gameReducer(state, { type: 'KEEP_CARD', playerId: 'p1', cardId: 'project-blue-2' })
     expect(next.phase).toBe('set')
   })
 
@@ -279,10 +279,10 @@ describe('KEEP_CARD / PUT_TO_MARKETPLACE auto-advance', () => {
     // project-green-2 has depColour 'green' — green player cannot keep it
     const state = makeState({
       phase: 'set',
-      players: [makePlayer('p1', 'green', { pendingCard: { cardId: 'project-green-2', drawnRound: 1 } })],
+      players: [makePlayer('p1', 'green', { pendingCards: [{ cardId: 'project-green-2', drawnRound: 1 }] })],
     })
-    const next = gameReducer(state, { type: 'KEEP_CARD', playerId: 'p1' })
-    expect(next.players[0].pendingCard).not.toBeNull()
+    const next = gameReducer(state, { type: 'KEEP_CARD', playerId: 'p1', cardId: 'project-green-2' })
+    expect(next.players[0].pendingCards).toHaveLength(1)
     expect(next.players[0].ownedCards).toHaveLength(0)
   })
 })
