@@ -26,6 +26,12 @@ const NEXT_LABEL = {
   work:  'Score →',
   score: 'Next Round →',
 }
+const FORCE_LABEL = {
+  set:   'Force → Plan',
+  plan:  'Force → Work',
+  work:  'Force → Score',
+  score: 'Force Next Round',
+}
 
 const TRAINING_TYPES = ['rework', 'support', 'set']
 const WORK_INIT = { reworkActive: false, reworkDieIds: [], setDieActive: false, settingDieId: null, pickerPos: null }
@@ -60,7 +66,7 @@ function pickSideProjectCardId(playerId, players, claimedByPlayer) {
 const BASE_SCORE = 70 // simulation top-strategy average — used as par for the game-end summary
 
 export default function GameBoard() {
-  const { state, dispatch, onNewGame, myPlayerIndex, isFacilitator } = useGameSession()
+  const { state, dispatch, onNewGame, myPlayerIndex, isFacilitator, facilitatorDispatch, facilitatorEventLabel } = useGameSession()
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
   const isNetworkMode = myPlayerIndex != null
   const isObserverMode = isFacilitator
@@ -91,6 +97,14 @@ export default function GameBoard() {
       ? players[myPlayerIndex]?.id ?? null
       : players[0]?.id ?? null
   )
+  const [toastLabel, setToastLabel] = useState(null)
+
+  useEffect(() => {
+    if (!facilitatorEventLabel) return
+    setToastLabel(facilitatorEventLabel)
+    const id = setTimeout(() => setToastLabel(null), 3000)
+    return () => clearTimeout(id)
+  }, [facilitatorEventLabel])
 
   function handleAdvancePhase() {
     if (phase === 'plan' && planToWorkWarnings.length > 0 && !advancePending) {
@@ -297,6 +311,13 @@ export default function GameBoard() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col gap-4">
 
+      {/* Facilitator transparency toast */}
+      {toastLabel && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white px-6 py-3 rounded-xl shadow-lg text-sm font-semibold pointer-events-none">
+          {toastLabel}
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="flex items-center justify-between bg-gray-800 rounded-xl px-6 py-3">
         <div className="flex items-center gap-4">
@@ -332,24 +353,38 @@ export default function GameBoard() {
                 className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
             </div>
           )}
-          {/* Pass-and-play: advance button for all phases */}
-          {!isNetworkMode && !isObserverMode && !gameOver && (
-            advancePending
-              ? <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
-                  <button onClick={handleAdvancePhase}
-                    className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer">
-                    Start Work anyway
-                  </button>
-                  <button onClick={() => setAdvancePending(false)}
-                    className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
-                </div>
-              : <button
-                  onClick={handleAdvancePhase}
-                  className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
-                >
-                  {NEXT_LABEL[phase]}
-                </button>
+          {/* Pass-and-play: advance button for all phases + reset */}
+          {!isNetworkMode && !isObserverMode && (
+            <>
+              {!gameOver && (
+                advancePending
+                  ? <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' ')}</span>
+                      <button onClick={handleAdvancePhase}
+                        className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg font-semibold text-sm cursor-pointer">
+                        Start Work anyway
+                      </button>
+                      <button onClick={() => setAdvancePending(false)}
+                        className="text-sm text-gray-400 hover:text-white cursor-pointer">Cancel</button>
+                    </div>
+                  : <button
+                      onClick={handleAdvancePhase}
+                      className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
+                    >
+                      {NEXT_LABEL[phase]}
+                    </button>
+              )}
+              <button
+                onClick={() => {
+                  if (window.confirm('Reset the game? This will restart from round 1.')) {
+                    onNewGame()
+                  }
+                }}
+                className="bg-gray-600 hover:bg-gray-500 active:bg-gray-700 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Reset
+              </button>
+            </>
           )}
 
           {/* Network mode: per-phase controls */}
@@ -419,6 +454,48 @@ export default function GameBoard() {
                 </button>
               )}
             </>
+          )}
+
+          {/* Facilitator controls (network mode) */}
+          {isFacilitator && !gameOver && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => facilitatorDispatch({ type: NEXT_ACTION[phase] })}
+                className="bg-violet-600 hover:bg-violet-500 active:bg-violet-700 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+              >
+                {FORCE_LABEL[phase]}
+              </button>
+              {phase === 'work' && (
+                <button
+                  onClick={() => facilitatorDispatch({ type: 'ROLL_ALL_DICE' })}
+                  className="bg-orange-600 hover:bg-orange-500 active:bg-orange-700 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  Roll all dice
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (window.confirm('Reset the game? This will restart from round 1.')) {
+                    facilitatorDispatch({ type: 'RESET_GAME' })
+                  }
+                }}
+                className="bg-red-700 hover:bg-red-600 active:bg-red-800 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+              >
+                Reset
+              </button>
+            </div>
+          )}
+          {isFacilitator && gameOver && (
+            <button
+              onClick={() => {
+                if (window.confirm('Reset the game? This will restart from round 1.')) {
+                  facilitatorDispatch({ type: 'RESET_GAME' })
+                }
+              }}
+              className="bg-red-700 hover:bg-red-600 active:bg-red-800 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+            >
+              Reset
+            </button>
           )}
         </div>
       </div>
