@@ -2,6 +2,7 @@
 // Run from project root: node simulate.js
 // 8 strategies × 50 games × 12 rounds — primary metric: teamScore
 
+import { fileURLToPath } from 'url'
 import { createInitialState, gameReducer, findCard } from './src/game/engine.js'
 import { TRAINING_CARDS, TRAINING_DEFINITIONS, SIDE_PROJECT_CARDS } from './src/data/cards.js'
 
@@ -18,7 +19,7 @@ function percentile(sortedArr, p) {
 
 // How many more owner dice slots need to be allocated to this card
 function ownerSlotsNeeded(state, card) {
-  const owner = state.players.find(p => p.ownedCard?.cardId === card.id)
+  const owner = state.players.find(p => p.ownedCards.some(oc => oc.cardId === card.id))
   if (!owner) return 0
   const already = owner.dice.filter(d => d.allocatedTo === card.id).length
   return Math.max(0, card.ownerDice.length - already)
@@ -26,13 +27,34 @@ function ownerSlotsNeeded(state, card) {
 
 // How many more dep dice slots need to be allocated to this card
 function depSlotsNeeded(state, card) {
-  const owner = state.players.find(p => p.ownedCard?.cardId === card.id)
+  const owner = state.players.find(p => p.ownedCards.some(oc => oc.cardId === card.id))
   if (!owner) return card.depDice.length
   const already = state.players
     .filter(p => p.id !== owner.id)
     .flatMap(p => p.dice.filter(d => d.allocatedTo === card.id))
     .length
   return Math.max(0, card.depDice.length - already)
+}
+
+// Claim a training card copy (if needed) and allocate all free dice to it.
+// Returns updated state. No-op if player already completed this training type.
+function claimAndAllocateTraining(state, playerId, trainingType) {
+  const p = getPlayer(state, playerId)
+  if (p.completedTrainings.includes(trainingType)) return state
+  let tc = TRAINING_CARDS.find(c =>
+    c.id.includes(trainingType) && p.activeTrainingCards.some(atc => atc.cardId === c.id)
+  )
+  if (!tc) {
+    tc = TRAINING_CARDS.find(c =>
+      c.id.includes(trainingType) &&
+      !state.players.some(op => op.activeTrainingCards.some(atc => atc.cardId === c.id))
+    )
+    if (!tc) return state
+    state = gameReducer(state, { type: 'CLAIM_TRAINING_CARD', playerId, cardId: tc.id })
+  }
+  for (const die of freeDice(getPlayer(state, playerId)))
+    state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId, dieId: die.id, cardId: tc.id })
+  return state
 }
 
 // Allocate up to `count` free dice from playerId to cardId
@@ -48,32 +70,28 @@ function allocate(state, playerId, cardId, count) {
 
 // ── Set phase helpers ─────────────────────────────────────────────────────────
 
-// Draw and keep — if card's depColour == player.colour (illegal), put to marketplace instead
+// Keep auto-dealt pending card — if depColour == own colour (illegal), put to marketplace instead
 function setPhase_keepOwn(state) {
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.needsDraw || p.pendingCard !== null) continue
-    state = gameReducer(state, { type: 'DRAW_CARD', playerId: id })
-    const updated = getPlayer(state, id)
-    if (!updated.pendingCard) continue
-    const card = findCard(updated.pendingCard.cardId)
-    if (card.type === 'project' && card.depColour === updated.colour) {
-      state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id })
-    } else {
-      state = gameReducer(state, { type: 'KEEP_CARD', playerId: id })
+    for (const pc of [...p.pendingCards]) {
+      const card = findCard(pc.cardId)
+      if (card.type === 'project' && card.depColour === p.colour) {
+        state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id, cardId: pc.cardId })
+      } else {
+        state = gameReducer(state, { type: 'KEEP_CARD', playerId: id, cardId: pc.cardId })
+      }
     }
   }
   return state
 }
 
-// Draw and put everything to marketplace; others take ownership in Plan phase
+// Put all auto-dealt cards to marketplace; others take ownership in Plan phase
 function setPhase_allMarketplace(state) {
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.needsDraw || p.pendingCard !== null) continue
-    state = gameReducer(state, { type: 'DRAW_CARD', playerId: id })
-    if (getPlayer(state, id).pendingCard) {
-      state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id })
+    for (const pc of [...p.pendingCards]) {
+      state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id, cardId: pc.cardId })
     }
   }
   return state
@@ -83,22 +101,20 @@ function setPhase_allMarketplace(state) {
 function setPhase_trainingFirst(state, trainingPlayerIds) {
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.needsDraw || p.pendingCard !== null) continue
-    state = gameReducer(state, { type: 'DRAW_CARD', playerId: id })
-    if (!getPlayer(state, id).pendingCard) continue
-    const trainee = getPlayer(state, id)
     const stillTraining = trainingPlayerIds.includes(id) && (
-      (id === trainingPlayerIds[0] && !trainee.completedTrainings.includes('support')) ||
-      (id === trainingPlayerIds[1] && !trainee.completedTrainings.includes('set'))
+      (id === trainingPlayerIds[0] && !p.completedTrainings.includes('support')) ||
+      (id === trainingPlayerIds[1] && !p.completedTrainings.includes('set'))
     )
-    if (stillTraining) {
-      state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id })
-    } else {
-      const card = findCard(getPlayer(state, id).pendingCard.cardId)
-      if (card.type === 'project' && card.depColour === getPlayer(state, id).colour) {
-        state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id })
+    for (const pc of [...p.pendingCards]) {
+      if (stillTraining) {
+        state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id, cardId: pc.cardId })
       } else {
-        state = gameReducer(state, { type: 'KEEP_CARD', playerId: id })
+        const card = findCard(pc.cardId)
+        if (card.type === 'project' && card.depColour === p.colour) {
+          state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id, cardId: pc.cardId })
+        } else {
+          state = gameReducer(state, { type: 'KEEP_CARD', playerId: id, cardId: pc.cardId })
+        }
       }
     }
   }
@@ -111,8 +127,8 @@ function setPhase_trainingFirst(state, trainingPlayerIds) {
 function planOwnerDice(state) {
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.ownedCard) continue
-    const card = findCard(p.ownedCard.cardId)
+    if (p.ownedCards.length === 0) continue
+    const card = findCard(p.ownedCards[0].cardId)
     const needed = ownerSlotsNeeded(state, card)
     if (needed > 0) state = allocate(state, id, card.id, needed)
   }
@@ -122,8 +138,8 @@ function planOwnerDice(state) {
 // Dep-colour players contribute dep dice to owned cards, sorted by comparator
 function planDepDice(state, comparator) {
   const ownedCards = state.players
-    .filter(p => p.ownedCard)
-    .map(p => findCard(p.ownedCard.cardId))
+    .filter(p => p.ownedCards.length > 0)
+    .map(p => findCard(p.ownedCards[0].cardId))
     .sort(comparator)
 
   for (const card of ownedCards) {
@@ -157,8 +173,8 @@ function planDepDice(state, comparator) {
 function planOwnerDiceFull(state) {
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.ownedCard) continue
-    const cardId = p.ownedCard.cardId
+    if (p.ownedCards.length === 0) continue
+    const cardId = p.ownedCards[0].cardId
     for (const die of freeDice(p)) {
       state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId })
     }
@@ -170,8 +186,8 @@ function planOwnerDiceFull(state) {
 // Cards nearly done get served first, maximising the chance something actually crosses the line.
 function planDepDiceByCompletion(state) {
   const ownedCards = state.players
-    .filter(p => p.ownedCard)
-    .map(p => findCard(p.ownedCard.cardId))
+    .filter(p => p.ownedCards.length > 0)
+    .map(p => findCard(p.ownedCards[0].cardId))
 
   const remaining = c => ownerSlotsNeeded(state, c) + depSlotsNeeded(state, c)
   const sorted = [...ownedCards].sort((a, b) => {
@@ -207,20 +223,9 @@ function planDepDiceByCompletion(state) {
 function planTrainingDice(state, trainingPlayerIds) {
   const targetTypes = { [trainingPlayerIds[0]]: 'support', [trainingPlayerIds[1]]: 'set' }
   for (const id of trainingPlayerIds) {
-    const p = getPlayer(state, id)
     const trainingType = targetTypes[id]
-    if (!trainingType || p.completedTrainings.includes(trainingType)) continue
-
-    // Find an unclaimed copy of this training type
-    const tc = TRAINING_CARDS.find(c => {
-      if (!c.id.includes(trainingType)) return false
-      return !state.players.some(op => op.id !== id && op.dice.some(d => d.allocatedTo === c.id))
-    })
-    if (!tc) continue
-
-    for (const die of freeDice(getPlayer(state, id))) {
-      state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId: tc.id })
-    }
+    if (!trainingType) continue
+    state = claimAndAllocateTraining(state, id, trainingType)
   }
   return state
 }
@@ -228,7 +233,7 @@ function planTrainingDice(state, trainingPlayerIds) {
 // Each player takes the best card from marketplace that they can legally own
 function planTakeFromMarketplace(state) {
   for (const { id } of state.players) {
-    if (getPlayer(state, id).ownedCard) continue
+    if (getPlayer(state, id).ownedCards.length > 0) continue
     const sorted = [...state.marketplace]
       .map(e => ({ ...e, card: findCard(e.cardId) }))
       .sort((a, b) => cardPriority(b.card) - cardPriority(a.card))
@@ -248,10 +253,10 @@ function planTakeFromMarketplace(state) {
 // a new take. avoidDepColours: skip cards whose dep colour is in this set.
 function planTakeFromMarketplaceWIPSmart(state, maxWIP, avoidDepColours = new Set()) {
   for (const { id } of state.players) {
-    if (getPlayer(state, id).ownedCard) continue
+    if (getPlayer(state, id).ownedCards.length > 0) continue
     const effectiveWIP = state.players.filter(p => {
-      if (!p.ownedCard) return false
-      return depSlotsNeeded(state, findCard(p.ownedCard.cardId)) > 0
+      if (p.ownedCards.length === 0) return false
+      return depSlotsNeeded(state, findCard(p.ownedCards[0].cardId)) > 0
     }).length
     if (effectiveWIP >= maxWIP) continue
     const sorted = [...state.marketplace]
@@ -272,8 +277,8 @@ function planTakeFromMarketplaceWIPSmart(state, maxWIP, avoidDepColours = new Se
 // Like planTakeFromMarketplace but stops once total owned projects reaches maxWIP
 function planTakeFromMarketplaceWIPLimited(state, maxWIP) {
   for (const { id } of state.players) {
-    if (state.players.filter(p => p.ownedCard).length >= maxWIP) break
-    if (getPlayer(state, id).ownedCard) continue
+    if (state.players.filter(p => p.ownedCards.length > 0).length >= maxWIP) break
+    if (getPlayer(state, id).ownedCards.length > 0) continue
     const sorted = [...state.marketplace]
       .map(e => ({ ...e, card: findCard(e.cardId) }))
       .sort((a, b) => cardPriority(b.card) - cardPriority(a.card))
@@ -309,8 +314,8 @@ function planSideProjects(state) {
 // Priority: fewest total remaining slots (closest to done), then urgency/points.
 function planDepDiceFocused(state, urgentFirst = false) {
   const pendingCards = state.players
-    .filter(p => p.ownedCard)
-    .map(p => findCard(p.ownedCard.cardId))
+    .filter(p => p.ownedCards.length > 0)
+    .map(p => findCard(p.ownedCards[0].cardId))
     .filter(c => depSlotsNeeded(state, c) > 0)
 
   const totalRemaining = c => ownerSlotsNeeded(state, c) + depSlotsNeeded(state, c)
@@ -340,8 +345,8 @@ function planDepDiceFocused(state, urgentFirst = false) {
 // Each player commits ALL their free dice to one card — no splitting.
 function planDepDiceFocusedWithSupport(state, urgentFirst = false) {
   const pendingCards = state.players
-    .filter(p => p.ownedCard)
-    .map(p => findCard(p.ownedCard.cardId))
+    .filter(p => p.ownedCards.length > 0)
+    .map(p => findCard(p.ownedCards[0].cardId))
     .filter(c => depSlotsNeeded(state, c) > 0)
 
   const totalRemaining = c => ownerSlotsNeeded(state, c) + depSlotsNeeded(state, c)
@@ -390,8 +395,8 @@ function planSideProjectsIfNoDepNeeds(state) {
     if (freeDice(p).length === 0) continue
 
     const stillNeededAsDep = state.players.some(op => {
-      if (!op.ownedCard) return false
-      const card = findCard(op.ownedCard.cardId)
+      if (op.ownedCards.length === 0) return false
+      const card = findCard(op.ownedCards[0].cardId)
       return card.depColour === p.colour && depSlotsNeeded(state, card) > 0
     })
     if (stillNeededAsDep) continue
@@ -413,8 +418,8 @@ function planSideProjectsIfNoDepNeeds(state) {
 // Dep dice for urgent cards only (called before training so obligations are met first)
 function planDepDiceUrgent(state) {
   const urgent = state.players
-    .filter(p => p.ownedCard)
-    .map(p => findCard(p.ownedCard.cardId))
+    .filter(p => p.ownedCards.length > 0)
+    .map(p => findCard(p.ownedCards[0].cardId))
     .filter(c => c.urgentPenalty > 0)
     .sort((a, b) => cardPriority(b) - cardPriority(a))
 
@@ -444,8 +449,8 @@ function planDepDiceUrgent(state) {
 function planUseSetTraining(state) {
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.completedTrainings.includes('set') || p.setDieUsed || !p.ownedCard) continue
-    const card = findCard(p.ownedCard.cardId)
+    if (!p.completedTrainings.includes('set') || p.setDieUsed || p.ownedCards.length === 0) continue
+    const card = findCard(p.ownedCards[0].cardId)
     // Find remaining owner slots (not yet covered by locked dice)
     const lockedOwner = p.dice.filter(d => d.locked && d.allocatedTo === card.id)
     const remaining = [...card.ownerDice]
@@ -466,9 +471,9 @@ function applyReworkAbility(state) {
   for (const { id } of state.players) {
     const p = state.players.find(pl => pl.id === id)
     if (!p.completedTrainings.includes('rework') || p.reworkUsed) continue
-    if (!p.ownedCard) continue
+    if (p.ownedCards.length === 0) continue
 
-    const card = findCard(p.ownedCard.cardId)
+    const card = findCard(p.ownedCards[0].cardId)
     const lockedOwner = p.dice.filter(d => d.locked && d.allocatedTo === card.id)
     const remaining = [...card.ownerDice]
     for (const d of lockedOwner) {
@@ -495,21 +500,10 @@ function applyReworkAbility(state) {
 // Only fires if player has ≥3 truly spare dice after ALL project obligations.
 function planTrainingOpportunistic(state) {
   for (const { id } of state.players) {
-    const p = getPlayer(state, id)
-    if (freeDice(p).length < 3) continue
-
-    const target = ['support', 'set'].find(t => !p.completedTrainings.includes(t))
+    if (freeDice(getPlayer(state, id)).length < 3) continue
+    const target = ['support', 'set'].find(t => !getPlayer(state, id).completedTrainings.includes(t))
     if (!target) continue
-
-    const tc = TRAINING_CARDS.find(c =>
-      c.id.includes(target) &&
-      !state.players.some(op => op.id !== id && op.dice.some(d => d.allocatedTo === c.id))
-    )
-    if (!tc) continue
-
-    for (const die of freeDice(getPlayer(state, id))) {
-      state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId: tc.id })
-    }
+    state = claimAndAllocateTraining(state, id, target)
   }
   return state
 }
@@ -517,8 +511,8 @@ function planTrainingOpportunistic(state) {
 // Like planDepDice but support-trained players also proactively fill gaps.
 function planDepDiceWithSupport(state, comparator) {
   const ownedCards = state.players
-    .filter(p => p.ownedCard)
-    .map(p => findCard(p.ownedCard.cardId))
+    .filter(p => p.ownedCards.length > 0)
+    .map(p => findCard(p.ownedCards[0].cardId))
     .sort(comparator)
 
   for (const card of ownedCards) {
@@ -696,15 +690,7 @@ function makeStrategy6() {
 
       // Trainers: all dice → their assigned training card
       for (const id of (trainerIds || [])) {
-        const target = trainerTargets[id]
-        const tc = TRAINING_CARDS.find(c =>
-          c.id.includes(target) &&
-          !state.players.some(op => op.id !== id && op.dice.some(d => d.allocatedTo === c.id))
-        )
-        if (!tc) continue
-        for (const die of freeDice(getPlayer(state, id))) {
-          state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId: tc.id })
-        }
+        state = claimAndAllocateTraining(state, id, trainerTargets[id])
       }
 
       state = planOwnerDice(state)
@@ -724,7 +710,7 @@ function makeStrategy6() {
       // Non-trainers (and graduated trainers) take from marketplace
       for (const { id } of state.players) {
         if (activeTrainers.includes(id)) continue
-        if (getPlayer(state, id).ownedCard) continue
+        if (getPlayer(state, id).ownedCards.length > 0) continue
         const sorted = [...state.marketplace]
           .map(e => ({ ...e, card: findCard(e.cardId) }))
           .sort((a, b) => cardPriority(b.card) - cardPriority(a.card))
@@ -739,15 +725,7 @@ function makeStrategy6() {
 
       // Active trainers: all dice → their training card
       for (const id of activeTrainers) {
-        const target = trainerTargets[id]
-        const tc = TRAINING_CARDS.find(c =>
-          c.id.includes(target) &&
-          !state.players.some(op => op.id !== id && op.dice.some(d => d.allocatedTo === c.id))
-        )
-        if (!tc) continue
-        for (const die of freeDice(getPlayer(state, id))) {
-          state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId: tc.id })
-        }
+        state = claimAndAllocateTraining(state, id, trainerTargets[id])
       }
 
       state = planUseSetTraining(state)
@@ -800,15 +778,14 @@ function strategy8(state) {
   // Set phase: keepers keep, others put to marketplace (illegal cards always to marketplace)
   for (const { id } of state.players) {
     const p = getPlayer(state, id)
-    if (!p.needsDraw || p.pendingCard !== null) continue
-    state = gameReducer(state, { type: 'DRAW_CARD', playerId: id })
-    if (!getPlayer(state, id).pendingCard) continue
-    const card = findCard(getPlayer(state, id).pendingCard.cardId)
-    const illegalOwn = card.type === 'project' && card.depColour === getPlayer(state, id).colour
-    if (REALISTIC_KEEPER_IDS.has(id) && !illegalOwn) {
-      state = gameReducer(state, { type: 'KEEP_CARD', playerId: id })
-    } else {
-      state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id })
+    for (const pc of [...p.pendingCards]) {
+      const card = findCard(pc.cardId)
+      const illegalOwn = card.type === 'project' && card.depColour === p.colour
+      if (REALISTIC_KEEPER_IDS.has(id) && !illegalOwn) {
+        state = gameReducer(state, { type: 'KEEP_CARD', playerId: id, cardId: pc.cardId })
+      } else {
+        state = gameReducer(state, { type: 'PUT_TO_MARKETPLACE', playerId: id, cardId: pc.cardId })
+      }
     }
   }
 
@@ -821,18 +798,10 @@ function strategy8(state) {
   // Marketplace players with remaining free dice pursue training
   for (const { id } of state.players) {
     if (REALISTIC_KEEPER_IDS.has(id)) continue
-    const p = getPlayer(state, id)
-    if (freeDice(p).length === 0) continue
-    const target = ['support', 'set'].find(t => !p.completedTrainings.includes(t))
+    if (freeDice(getPlayer(state, id)).length === 0) continue
+    const target = ['support', 'set'].find(t => !getPlayer(state, id).completedTrainings.includes(t))
     if (!target) continue
-    const tc = TRAINING_CARDS.find(c =>
-      c.id.includes(target) &&
-      !state.players.some(op => op.id !== id && op.dice.some(d => d.allocatedTo === c.id))
-    )
-    if (!tc) continue
-    for (const die of freeDice(getPlayer(state, id))) {
-      state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId: tc.id })
-    }
+    state = claimAndAllocateTraining(state, id, target)
   }
 
   state = planSideProjects(state)
@@ -966,13 +935,7 @@ function makeTrainingStrategy(trainingTypes) {
     })
     for (const id of activeTrainers) {
       const target = trainerTargets[id]
-      const tc = TRAINING_CARDS.find(c =>
-        c.id.includes(target) &&
-        !state.players.some(op => op.id !== id && op.dice.some(d => d.allocatedTo === c.id))
-      )
-      if (!tc) continue
-      for (const die of freeDice(getPlayer(state, id)))
-        state = gameReducer(state, { type: 'ALLOCATE_DIE', playerId: id, dieId: die.id, cardId: tc.id })
+      state = claimAndAllocateTraining(state, id, target)
     }
 
     // ── Project dice ──────────────────────────────────────────────────────────
@@ -1035,6 +998,8 @@ const strategies = [
   { name: 'Train 2P Set & Support',         fn: strategy14,      args: [] },
 ]
 
+export { runGame, strategies }
+
 // ── Diagnostic: analyse one game for training activity ────────────────────────
 
 function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) {
@@ -1082,10 +1047,10 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
 
     const depCounts = {}
     for (const p of state.players) {
-      if (!p.ownedCard) continue
-      const dc = findCard(p.ownedCard.cardId).depColour
+      if (p.ownedCards.length === 0) continue
+      const dc = findCard(p.ownedCards[0].cardId).depColour
       depCounts[dc] = (depCounts[dc] || 0) + 1
-      if (findCard(p.ownedCard.cardId).urgentPenalty > 0) urgentOwnedSet.add(p.ownedCard.cardId)
+      if (findCard(p.ownedCards[0].cardId).urgentPenalty > 0) urgentOwnedSet.add(p.ownedCards[0].cardId)
     }
     const depVals = Object.values(depCounts)
     if (depVals.length) peakDepConcentration = Math.max(peakDepConcentration, Math.max(...depVals))
@@ -1102,7 +1067,7 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
         const card = findCard(d.allocatedTo)
         if (card?.type !== 'project') return false
         if (card.depColour === p.colour) return false
-        return state.players.find(op => op.ownedCard?.cardId === card.id)?.id !== p.id
+        return state.players.find(op => op.ownedCards.some(oc => oc.cardId === card.id))?.id !== p.id
       })
       if (usedSupport) supportAbilityUses++
     }
@@ -1127,7 +1092,7 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
     // Capture drawnRound before scoring clears ownedCard on delivery
     const drawnRoundByCard = {}
     for (const p of state.players) {
-      if (p.ownedCard) drawnRoundByCard[p.ownedCard.cardId] = p.ownedCard.drawnRound
+      for (const oc of p.ownedCards) drawnRoundByCard[oc.cardId] = oc.drawnRound
     }
 
     state = gameReducer(state, { type: 'ADVANCE_TO_WORK' })
@@ -1199,6 +1164,8 @@ function diagnoseGame(strategyFn, totalRounds, extraArgs, prebuiltState = null) 
 }
 
 // ── Seeded initial states — same deck per game across all strategies ──────────
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 function makePRNG(seed) {
   let s = seed >>> 0
@@ -1390,3 +1357,5 @@ allData.forEach((d, i) => {
   const row = d.avgByRound.map(v => v.toFixed(1).padStart(5)).join('')
   console.log(SHORT[i].padEnd(NW) + row)
 })
+
+} // end isMain
