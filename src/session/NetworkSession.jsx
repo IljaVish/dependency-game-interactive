@@ -9,6 +9,7 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
   const [lobbyPlayers, setLobbyPlayers] = useState([])
   const [gameState, setGameState] = useState(null)
   const [errorMsg, setErrorMsg] = useState(null)
+  const [facilitatorEventLabel, setFacilitatorEventLabel] = useState(null)
   const socketRef = useRef(null)
 
   // Stable per-tab token so reconnects restore the same player slot
@@ -42,6 +43,7 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
       if (msg.type === 'lobby') setLobbyPlayers(msg.players)
       if (msg.type === 'state') setGameState(msg.state)
       if (msg.type === 'error') setErrorMsg(msg.message)
+      if (msg.type === 'facilitator_event') setFacilitatorEventLabel(msg.label)
     })
 
     return () => socket.close()
@@ -50,6 +52,10 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
   function dispatch(action) {
     if (isFacilitator) return
     socketRef.current?.send(JSON.stringify({ type: 'dispatch', action }))
+  }
+
+  function facilitatorDispatch(action) {
+    socketRef.current?.send(JSON.stringify({ type: 'facilitator_dispatch', action }))
   }
 
   function handleStart() {
@@ -102,6 +108,8 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
         onNewGame,
         myPlayerIndex: isFacilitator ? null : playerIndex,
         isFacilitator,
+        facilitatorDispatch: isFacilitator ? facilitatorDispatch : undefined,
+        facilitatorEventLabel,
       }}>
         {children}
       </GameSessionContext.Provider>
