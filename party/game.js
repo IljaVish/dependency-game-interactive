@@ -86,6 +86,7 @@ export default class GameServer {
           name: p.name,
           colour: p.colour,
         }))
+        this.playerDefs = playerDefs
         this.gameState = createInitialState({ playerDefs, totalRounds: 12 })
         this.party.broadcast(JSON.stringify({ type: 'state', state: this.gameState }))
         break
@@ -99,6 +100,34 @@ export default class GameServer {
         this.gameState = gameReducer(this.gameState, msg.action)
 
         this.party.broadcast(JSON.stringify({ type: 'state', state: this.gameState }))
+        break
+      }
+
+      case 'facilitator_dispatch': {
+        if (!this.gameState) return
+        const senderEntry = this.lobby.find(p => p.connId === sender.id)
+        if (!senderEntry || senderEntry.role !== 'facilitator') return
+
+        const FACILITATOR_LABELS = {
+          RESET_GAME:            'Facilitator reset the game',
+          ADVANCE_TO_PLAN:       'Facilitator advanced to Planning',
+          ADVANCE_TO_WORK:       'Facilitator advanced to Work',
+          ADVANCE_TO_SCORE:      'Facilitator advanced to Scoring',
+          ADVANCE_TO_NEXT_ROUND: 'Facilitator started the next round',
+        }
+
+        if (msg.action.type === 'RESET_GAME') {
+          this.gameState = createInitialState({ playerDefs: this.playerDefs, totalRounds: 12 })
+        } else {
+          this.gameState = gameReducer(this.gameState, msg.action)
+        }
+
+        this.party.broadcast(JSON.stringify({ type: 'state', state: this.gameState }))
+
+        const label = FACILITATOR_LABELS[msg.action.type]
+        if (label) {
+          this.party.broadcast(JSON.stringify({ type: 'facilitator_event', label }))
+        }
         break
       }
     }
