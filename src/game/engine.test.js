@@ -895,6 +895,35 @@ describe('ADVANCE_TO_NEXT_ROUND', () => {
     const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
     expect(next.gameOver).toBe(true)
   })
+
+  it('skips set phase and goes straight to plan when no player needs to draw', () => {
+    // All players have needsDraw === 0 — nobody completed a project last round.
+    const state = makeState({
+      phase: 'score',
+      round: 2,
+      players: [
+        makePlayer('p1', 'green', { needsDraw: 0 }),
+        makePlayer('p2', 'blue',  { needsDraw: 0 }),
+      ],
+      deck: [],
+    })
+    const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
+    expect(next.phase).toBe('plan')
+  })
+
+  it('stays in set phase when at least one player needs to draw', () => {
+    const state = makeState({
+      phase: 'score',
+      round: 2,
+      players: [
+        makePlayer('p1', 'green', { needsDraw: 1 }),
+        makePlayer('p2', 'blue',  { needsDraw: 0 }),
+      ],
+      deck: ['project-a'],
+    })
+    const next = gameReducer(state, { type: 'ADVANCE_TO_NEXT_ROUND' })
+    expect(next.phase).toBe('set')
+  })
 })
 
 describe('PLAYER_DONE_PLANNING', () => {

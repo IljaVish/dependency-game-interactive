@@ -499,7 +499,7 @@ function setupNextRound(state) {
     // needsDraw stays set until player draws in Set phase
   }))
 
-  return autoDraw({
+  const next = autoDraw({
     ...state,
     phase: 'set',
     round: nextRound,
@@ -508,6 +508,10 @@ function setupNextRound(state) {
     workReadyPlayers: [],
     players,
   })
+  // If nobody needs to draw, skip set phase entirely.
+  return next.players.every(p => p.pendingCards.length === 0)
+    ? { ...next, phase: 'plan' }
+    : next
 }
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
