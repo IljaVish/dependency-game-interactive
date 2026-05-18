@@ -68,7 +68,7 @@ const BASE_SCORE = 70 // simulation top-strategy average — used as par for the
 export default function GameBoard() {
   const { state, dispatch, onNewGame, myPlayerIndex, isFacilitator, facilitatorDispatch, facilitatorEventLabel } = useGameSession()
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
-  const isNetworkMode = myPlayerIndex != null
+  const isNetworkMode = myPlayerIndex != null || isFacilitator
   const isObserverMode = false
 
   const myPlayer = isNetworkMode ? (players[myPlayerIndex] ?? null) : null

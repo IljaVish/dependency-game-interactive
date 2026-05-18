@@ -50,7 +50,6 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
   }, [roomCode, playerName, isFacilitator])
 
   function dispatch(action) {
-    if (isFacilitator) return
     socketRef.current?.send(JSON.stringify({ type: 'dispatch', action }))
   }
 
