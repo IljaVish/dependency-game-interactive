@@ -806,6 +806,13 @@ export function gameReducer(state, action) {
     case 'ADVANCE_TO_PLAN':
       return { ...state, phase: 'plan' }
 
+    case 'FORCE_ADVANCE_TO_PLAN': {
+      // Facilitator force: push every player's pending cards to marketplace, then advance.
+      const allPending = state.players.flatMap(p => p.pendingCards)
+      const players = state.players.map(p => ({ ...p, pendingCards: [], needsDraw: 0 }))
+      return { ...state, players, marketplace: [...state.marketplace, ...allPending], phase: 'plan' }
+    }
+
     case 'ADVANCE_TO_WORK':
       return { ...state, phase: 'work', planReadyPlayers: [], workReadyPlayers: [] }
 

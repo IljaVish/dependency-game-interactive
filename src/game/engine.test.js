@@ -1069,3 +1069,61 @@ describe('phase guards on advance actions', () => {
     expect(next.phase).toBe('score')
   })
 })
+
+describe('FORCE_ADVANCE_TO_PLAN', () => {
+  it('pushes all pending cards to marketplace and advances to plan', () => {
+    const state = makeState({
+      phase: 'set',
+      players: [
+        makePlayer('p1', 'green', { pendingCards: [{ cardId: 'card-a', drawnRound: 1 }], needsDraw: 1 }),
+        makePlayer('p2', 'blue',  { pendingCards: [{ cardId: 'card-b', drawnRound: 1 }, { cardId: 'card-c', drawnRound: 1 }], needsDraw: 2 }),
+      ],
+      marketplace: [],
+    })
+
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_PLAN' })
+
+    expect(next.phase).toBe('plan')
+    expect(next.marketplace).toEqual([
+      { cardId: 'card-a', drawnRound: 1 },
+      { cardId: 'card-b', drawnRound: 1 },
+      { cardId: 'card-c', drawnRound: 1 },
+    ])
+    expect(next.players[0].pendingCards).toEqual([])
+    expect(next.players[0].needsDraw).toBe(0)
+    expect(next.players[1].pendingCards).toEqual([])
+    expect(next.players[1].needsDraw).toBe(0)
+  })
+
+  it('advances to plan with no pending cards (edge case: all already decided)', () => {
+    const state = makeState({
+      phase: 'set',
+      players: [
+        makePlayer('p1', 'green', { pendingCards: [], needsDraw: 0 }),
+      ],
+      marketplace: [],
+    })
+
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_PLAN' })
+
+    expect(next.phase).toBe('plan')
+    expect(next.marketplace).toEqual([])
+  })
+
+  it('preserves existing marketplace entries', () => {
+    const state = makeState({
+      phase: 'set',
+      players: [
+        makePlayer('p1', 'green', { pendingCards: [{ cardId: 'card-new', drawnRound: 2 }], needsDraw: 1 }),
+      ],
+      marketplace: [{ cardId: 'card-old', drawnRound: 1 }],
+    })
+
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_PLAN' })
+
+    expect(next.marketplace).toEqual([
+      { cardId: 'card-old', drawnRound: 1 },
+      { cardId: 'card-new', drawnRound: 2 },
+    ])
+  })
+})
