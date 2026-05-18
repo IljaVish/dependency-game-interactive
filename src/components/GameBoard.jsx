@@ -69,7 +69,7 @@ export default function GameBoard() {
   const { state, dispatch, onNewGame, myPlayerIndex, isFacilitator, facilitatorDispatch, facilitatorEventLabel } = useGameSession()
   const { round, totalRounds, phase, marketplace, players, gameOver } = state
   const isNetworkMode = myPlayerIndex != null
-  const isObserverMode = isFacilitator
+  const isObserverMode = false
 
   const myPlayer = isNetworkMode ? (players[myPlayerIndex] ?? null) : null
   const myPlayerId = myPlayer?.id ?? null
@@ -278,7 +278,7 @@ export default function GameBoard() {
     : []
 
   const planToWorkWarnings = phase === 'plan'
-    ? isNetworkMode
+    ? (isNetworkMode && !isFacilitator)
       ? (() => {
           const myP = players[myPlayerIndex]
           const n = myP ? myP.dice.filter(d => !d.locked && d.allocatedTo === null).length : 0
@@ -388,7 +388,7 @@ export default function GameBoard() {
           )}
 
           {/* Network mode: per-phase controls */}
-          {isNetworkMode && !isObserverMode && !gameOver && (
+          {isNetworkMode && !isFacilitator && !gameOver && (
             <>
               {/* Set phase: waiting indicator when this player has decided */}
               {iDoneWithSetPhase && setPhaseWaitCount > 0 && (
@@ -603,8 +603,8 @@ export default function GameBoard() {
       <section className="bg-gray-800 rounded-xl p-4 flex flex-col gap-2">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400">Players</h2>
-          {/* Player switcher — only in pass-and-play */}
-          {!isNetworkMode && !isObserverMode && (
+          {/* Player switcher — pass-and-play and facilitator */}
+          {(!isNetworkMode || isFacilitator) && (
             <div className="flex gap-1.5">
               {players.map(p => (
                 <button
