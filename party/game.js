@@ -95,7 +95,7 @@ export default class GameServer {
       case 'dispatch': {
         if (!this.gameState) return
         const senderEntry = this.lobby.find(p => p.connId === sender.id)
-        if (!senderEntry || senderEntry.role !== 'player') return
+        if (!senderEntry) return
 
         this.gameState = gameReducer(this.gameState, msg.action)
 
