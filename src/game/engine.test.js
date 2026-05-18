@@ -1144,3 +1144,72 @@ describe('FORCE_ADVANCE_TO_PLAN', () => {
     expect(next.marketplace).toEqual([{ cardId: 'card-a', drawnRound: 1 }])
   })
 })
+
+describe('FORCE_ADVANCE_TO_SCORE', () => {
+  it('rolls all unset dice and advances to score phase', () => {
+    const state = makeState({
+      phase: 'work',
+      round: 1,
+      totalRounds: 12,
+      players: [
+        makePlayer('p1', 'green', {
+          dice: [
+            makeDie('green-0', { value: 4 }),  // already rolled
+            makeDie('green-1', { value: null }), // not yet rolled
+          ],
+        }),
+        makePlayer('p2', 'blue', {
+          dice: [
+            makeDie('blue-0', { value: null }),
+            makeDie('blue-1', { value: null }),
+          ],
+        }),
+      ],
+      roundScores: [],
+    })
+
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_SCORE' })
+
+    expect(next.phase).toBe('score')
+    // All previously-null dice now have values
+    expect(next.players[0].dice[1].value).toBeGreaterThanOrEqual(1)
+    expect(next.players[0].dice[1].value).toBeLessThanOrEqual(6)
+    expect(next.players[1].dice[0].value).toBeGreaterThanOrEqual(1)
+    expect(next.players[1].dice[1].value).toBeGreaterThanOrEqual(1)
+    // Already-rolled die is unchanged
+    expect(next.players[0].dice[0].value).toBe(4)
+    // Round was scored
+    expect(next.roundScores).toHaveLength(1)
+  })
+
+  it('is a no-op when not in work phase', () => {
+    const state = makeState({ phase: 'plan', players: [makePlayer('p1', 'green')] })
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_SCORE' })
+    expect(next.phase).toBe('plan')
+  })
+
+  it('sets gameOver when on the last round', () => {
+    const state = makeState({
+      phase: 'work',
+      round: 12,
+      totalRounds: 12,
+      players: [makePlayer('p1', 'green')],
+      roundScores: [],
+    })
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_SCORE' })
+    expect(next.phase).toBe('score')
+    expect(next.gameOver).toBe(true)
+  })
+
+  it('does not set gameOver before the last round', () => {
+    const state = makeState({
+      phase: 'work',
+      round: 1,
+      totalRounds: 12,
+      players: [makePlayer('p1', 'green')],
+      roundScores: [],
+    })
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_SCORE' })
+    expect(next.gameOver).toBe(false)
+  })
+})

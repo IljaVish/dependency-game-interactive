@@ -847,6 +847,20 @@ export function gameReducer(state, action) {
       return { ...scored, phase: 'score', gameOver }
     }
 
+    case 'FORCE_ADVANCE_TO_SCORE': {
+      if (state.phase !== 'work') return state
+      const players = state.players.map(player => {
+        const unset = player.dice.filter(d => d.value === null)
+        const rolled = rollDice(unset.length)
+        let i = 0
+        return { ...player, dice: player.dice.map(d => d.value === null ? { ...d, value: rolled[i++] } : d) }
+      })
+      const withRolls = applyWorkMatches({ ...state, players })
+      const scored = scoreRound(withRolls)
+      const gameOver = state.round >= state.totalRounds
+      return { ...scored, phase: 'score', gameOver }
+    }
+
     case 'ADVANCE_TO_NEXT_ROUND':
       if (state.phase !== 'score') return state
       return setupNextRound(state)
