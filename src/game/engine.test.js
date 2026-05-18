@@ -1126,4 +1126,21 @@ describe('FORCE_ADVANCE_TO_PLAN', () => {
       { cardId: 'card-new', drawnRound: 2 },
     ])
   })
+
+  it('decrements needsDraw by the number of cards pushed, not forcing to zero', () => {
+    // Player has needsDraw:2 but only 1 pending card (deck ran out during autoDraw)
+    const state = makeState({
+      phase: 'set',
+      players: [
+        makePlayer('p1', 'green', { pendingCards: [{ cardId: 'card-a', drawnRound: 1 }], needsDraw: 2 }),
+      ],
+      marketplace: [],
+    })
+
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_PLAN' })
+
+    expect(next.players[0].needsDraw).toBe(1)
+    expect(next.players[0].pendingCards).toEqual([])
+    expect(next.marketplace).toEqual([{ cardId: 'card-a', drawnRound: 1 }])
+  })
 })
