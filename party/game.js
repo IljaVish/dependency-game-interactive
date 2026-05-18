@@ -109,11 +109,11 @@ export default class GameServer {
         if (!senderEntry || senderEntry.role !== 'facilitator') return
 
         const FACILITATOR_LABELS = {
-          RESET_GAME:            'Facilitator reset the game',
-          ADVANCE_TO_PLAN:       'Facilitator advanced to Planning',
-          ADVANCE_TO_WORK:       'Facilitator advanced to Work',
-          ADVANCE_TO_SCORE:      'Facilitator advanced to Scoring',
-          ADVANCE_TO_NEXT_ROUND: 'Facilitator started the next round',
+          RESET_GAME:              'Facilitator reset the game',
+          FORCE_ADVANCE_TO_PLAN:   'Facilitator advanced to Planning (pending cards sent to market)',
+          ADVANCE_TO_WORK:         'Facilitator advanced to Work',
+          FORCE_ADVANCE_TO_SCORE:  'Facilitator advanced to Scoring (all dice rolled)',
+          ADVANCE_TO_NEXT_ROUND:   'Facilitator started the next round',
         }
 
         if (msg.action.type === 'RESET_GAME') {
