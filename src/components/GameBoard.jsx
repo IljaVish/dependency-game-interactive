@@ -15,9 +15,9 @@ const PHASE_COLOURS = {
   score: 'bg-green-700  text-green-100',
 }
 const NEXT_ACTION = {
-  set:   'ADVANCE_TO_PLAN',
+  set:   'FORCE_ADVANCE_TO_PLAN',
   plan:  'ADVANCE_TO_WORK',
-  work:  'ADVANCE_TO_SCORE',
+  work:  'FORCE_ADVANCE_TO_SCORE',
   score: 'ADVANCE_TO_NEXT_ROUND',
 }
 const NEXT_LABEL = {
@@ -458,13 +458,36 @@ export default function GameBoard() {
 
           {/* Facilitator controls (network mode) */}
           {isFacilitator && !gameOver && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => facilitatorDispatch({ type: NEXT_ACTION[phase] })}
-                className="bg-violet-600 hover:bg-violet-500 active:bg-violet-700 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
-              >
-                {FORCE_LABEL[phase]}
-              </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Plan→Work: show warning if players have unallocated dice */}
+              {phase === 'plan' && advancePending ? (
+                <>
+                  <span className="text-xs text-yellow-300">{planToWorkWarnings.join(' · ')}</span>
+                  <button
+                    onClick={() => { facilitatorDispatch({ type: 'ADVANCE_TO_WORK' }); setAdvancePending(false) }}
+                    className="bg-violet-600 hover:bg-violet-500 px-3 py-1.5 rounded-lg font-semibold text-xs cursor-pointer"
+                  >
+                    Force anyway
+                  </button>
+                  <button onClick={() => setAdvancePending(false)}
+                    className="text-xs text-gray-400 hover:text-white cursor-pointer">
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (phase === 'plan' && planToWorkWarnings.length > 0) {
+                      setAdvancePending(true)
+                    } else {
+                      facilitatorDispatch({ type: NEXT_ACTION[phase] })
+                    }
+                  }}
+                  className="bg-violet-600 hover:bg-violet-500 active:bg-violet-700 px-3 py-1.5 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
+                >
+                  {FORCE_LABEL[phase]}
+                </button>
+              )}
               {phase === 'work' && (
                 <button
                   onClick={() => facilitatorDispatch({ type: 'ROLL_ALL_DICE' })}
