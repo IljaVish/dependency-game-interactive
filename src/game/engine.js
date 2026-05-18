@@ -807,6 +807,7 @@ export function gameReducer(state, action) {
       return { ...state, phase: 'plan' }
 
     case 'FORCE_ADVANCE_TO_PLAN': {
+      if (state.phase !== 'set') return state
       // Facilitator force: push every player's pending cards to marketplace, then advance.
       const allPending = state.players.flatMap(p => p.pendingCards)
       const players = state.players.map(p => ({ ...p, pendingCards: [], needsDraw: Math.max(0, p.needsDraw - p.pendingCards.length) }))

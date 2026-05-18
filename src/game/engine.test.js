@@ -1143,6 +1143,17 @@ describe('FORCE_ADVANCE_TO_PLAN', () => {
     expect(next.players[0].pendingCards).toEqual([])
     expect(next.marketplace).toEqual([{ cardId: 'card-a', drawnRound: 1 }])
   })
+
+  it('is a no-op when not in set phase', () => {
+    const state = makeState({
+      phase: 'plan',
+      players: [makePlayer('p1', 'green', { pendingCards: [{ cardId: 'card-a', drawnRound: 1 }], needsDraw: 1 })],
+      marketplace: [],
+    })
+    const next = gameReducer(state, { type: 'FORCE_ADVANCE_TO_PLAN' })
+    expect(next.phase).toBe('plan')
+    expect(next.marketplace).toEqual([])
+  })
 })
 
 describe('FORCE_ADVANCE_TO_SCORE', () => {
