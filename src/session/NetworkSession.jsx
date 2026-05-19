@@ -3,6 +3,12 @@ import PartySocket from 'partysocket'
 import { GameSessionContext } from './GameSessionContext.jsx'
 import Lobby from '../components/Lobby.jsx'
 
+// crypto.randomUUID is only defined in secure contexts (HTTPS or localhost)
+function generateToken() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame, children }) {
   const [connStatus, setConnStatus] = useState('connecting')
   const [playerIndex, setPlayerIndex] = useState(null)
@@ -16,7 +22,7 @@ export function NetworkSession({ roomCode, playerName, isFacilitator, onNewGame,
   const [token] = useState(() => {
     const key = `depgame-token-${roomCode}`
     let t = sessionStorage.getItem(key)
-    if (!t) { t = crypto.randomUUID(); sessionStorage.setItem(key, t) }
+    if (!t) { t = generateToken(); sessionStorage.setItem(key, t) }
     return t
   })
 
